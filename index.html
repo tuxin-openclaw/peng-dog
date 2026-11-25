@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+  <title>小狗蹲坐形象集 · Canvas 矢量手绘</title>
+  <style>
+    :root {
+      --bg-page: #f4f7fc;
+      --hud-bg: rgba(255, 255, 255, 0.82);
+      --hud-border: rgba(140, 168, 204, 0.28);
+      --hud-shadow: 0 10px 30px rgba(48, 76, 118, 0.1);
+      --text-main: #2c3545;
+      --text-muted: #69778c;
+      --tab-active-bg: #3b82f6;
+      --tab-active-text: #ffffff;
+      --tab-hover-bg: rgba(59, 130, 246, 0.1);
+      --btn-bg: rgba(255, 255, 255, 0.9);
+    }
+
+    body.theme-dark {
+      --bg-page: #151922;
+      --hud-bg: rgba(28, 34, 46, 0.84);
+      --hud-border: rgba(255, 255, 255, 0.12);
+      --hud-shadow: 0 12px 32px rgba(0, 0, 0, 0.36);
+      --text-main: #eef2f8;
+      --text-muted: #9aa6ba;
+      --tab-active-bg: #60a5fa;
+      --tab-active-text: #101826;
+      --tab-hover-bg: rgba(96, 165, 250, 0.15);
+      --btn-bg: rgba(38, 46, 62, 0.92);
+    }
+
+    * {
+      box-sizing: border-box;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: var(--bg-page);
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      color: var(--text-main);
+    }
+
+    #petCanvas {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+      cursor: pointer;
+    }
+
+    .hud-top {
+      position: fixed;
+      top: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 10;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: center;
+      width: max-content;
+      max-width: calc(100vw - 24px);
+    }
+
+    .char-switcher,
+    .hud-actions {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 5px;
+      border-radius: 999px;
+      background: var(--hud-bg);
+      border: 1px solid var(--hud-border);
+      box-shadow: var(--hud-shadow);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+    }
+
+    .char-tab,
+    .hud-btn {
+      appearance: none;
+      border: none;
+      background: transparent;
+      color: var(--text-main);
+      font: inherit;
+      font-size: 13.5px;
+      font-weight: 600;
+      padding: 7px 14px;
+      border-radius: 999px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: background 0.18s ease, color 0.18s ease, transform 0.12s ease;
+      white-space: nowrap;
+    }
+
+    .char-tab:hover,
+    .hud-btn:hover {
+      background: var(--tab-hover-bg);
+    }
+
+    .char-tab:active,
+    .hud-btn:active {
+      transform: scale(0.96);
+    }
+
+    .char-tab.is-active {
+      background: var(--tab-active-bg);
+      color: var(--tab-active-text);
+      box-shadow: 0 3px 10px rgba(59, 130, 246, 0.28);
+    }
+
+    .hud-bottom {
+      position: fixed;
+      bottom: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 10;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 8px 18px;
+      border-radius: 999px;
+      background: var(--hud-bg);
+      border: 1px solid var(--hud-border);
+      box-shadow: var(--hud-shadow);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      font-size: 13px;
+      color: var(--text-muted);
+      white-space: nowrap;
+      max-width: calc(100vw - 24px);
+    }
+
+    .hud-bottom strong {
+      color: var(--text-main);
+      font-weight: 700;
+    }
+
+    .divider {
+      width: 1px;
+      height: 13px;
+      background: var(--hud-border);
+    }
+
+    @media (max-width: 720px) {
+      .char-tab, .hud-btn {
+        font-size: 12px;
+        padding: 6px 10px;
+      }
+      .hud-bottom {
+        font-size: 12px;
+        padding: 6px 14px;
+      }
+    }
+  </style>
+</head>
+<body class="theme-light">
+  <header class="hud-top">
+    <nav class="char-switcher" aria-label="切换小狗形象">
+      <button type="button" class="char-tab is-active" data-view="all" aria-pressed="true">
+        <span>🐾</span><span>三只同框</span>
+      </button>
+      <button type="button" class="char-tab" data-view="sunny" aria-pressed="false">
+        <span>🕶️</span><span>墨镜金毛</span>
+      </button>
+      <button type="button" class="char-tab" data-view="daisy" aria-pressed="false">
+        <span>🌼</span><span>蓝巾笑柴</span>
+      </button>
+      <button type="button" class="char-tab" data-view="kuro" aria-pressed="false">
+        <span>🖤</span><span>歪头黑柴</span>
+      </button>
+    </nav>
+
+    <div class="hud-actions">
+      <button type="button" class="hud-btn" id="motionToggle" aria-pressed="true" title="切换微动动画或静态定格">
+        <span id="motionIcon">✨</span><span id="motionLabel">微动开</span>
+      </button>
+      <button type="button" class="hud-btn" id="themeToggle" aria-pressed="false" title="切换浅色/深色背景">
+        <span id="themeIcon">☀️</span><span id="themeLabel">浅色</span>
+      </button>
+      <button type="button" class="hud-btn" id="exportBtn" title="导出透明背景 PNG">
+        <span>📸</span><span>导出 PNG</span>
+      </button>
+    </div>
+  </header>
+
+  <canvas id="petCanvas"></canvas>
+
+  <footer class="hud-bottom">
+    <span id="statusHint">统一图2正面蹲坐姿势 · 点击任意小狗可摸摸头互动</span>
+    <span class="divider"></span>
+    <span>摸摸次数 <strong id="petCount">0</strong></span>
+  </footer>
+
+  <script src="./app.js"></script>
+</body>
+</html>
