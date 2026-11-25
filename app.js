@@ -15,7 +15,9 @@
   const themeIconEl = document.getElementById('themeIcon');
   const themeLabelEl = document.getElementById('themeLabel');
   const exportBtn = document.getElementById('exportBtn');
+  const napBtn = document.getElementById('napBtn');
   const viewTabs = Array.from(document.querySelectorAll('.char-tab'));
+  const treatBtns = Array.from(document.querySelectorAll('.treat-btn'));
 
   const STAGE_W = 1320;
   const STAGE_H = 700;
@@ -385,6 +387,55 @@
     osc.stop(now + 0.042);
   }
 
+  function playNomSound() {
+    if (!soundEnabled) return;
+    ensureAudio();
+    if (!audioCtx) return;
+
+    const now = audioCtx.currentTime;
+    for (const [offset, f0, f1] of [
+      [0, 310, 490],
+      [0.11, 370, 590],
+    ]) {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(f0, now + offset);
+      osc.frequency.exponentialRampToValueAtTime(f1, now + offset + 0.075);
+
+      gain.gain.setValueAtTime(0.0001, now + offset);
+      gain.gain.linearRampToValueAtTime(0.13, now + offset + 0.012);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + offset + 0.085);
+
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start(now + offset);
+      osc.stop(now + offset + 0.09);
+    }
+  }
+
+  function playBubblePopSound() {
+    if (!soundEnabled) return;
+    ensureAudio();
+    if (!audioCtx) return;
+
+    const now = audioCtx.currentTime;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(480, now);
+    osc.frequency.exponentialRampToValueAtTime(1420, now + 0.048);
+
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.linearRampToValueAtTime(0.15, now + 0.006);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.055);
+
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start(now);
+    osc.stop(now + 0.06);
+  }
+
   // =========================================================================
   // Shared Workstation & Squatting Rig Constants
   // =========================================================================
@@ -630,6 +681,19 @@
         happyBlend: 0,
         petHoldUntil: -1,
         lastHeartAt: 0,
+        // Treat feeding & Sunny sunglasses peek state
+        droolBlend: 0,
+        anticipationBlend: 0,
+        chewTimer: 0,
+        sunglassesDrop: 0,
+        sunglassesPeekUntil: -1,
+        // Idle yawn / sleep / snot bubble / wake startle state
+        yawnBlend: 0,
+        sleepBlend: 0,
+        wakeShockTimer: 0,
+        lastZzzAt: 0,
+        // Turbo paw afterimage trails (30+ Combo)
+        pawTrails: [],
         leftPaw: {
           x: LEFT_SQUAT_HOME_X,
           y: LEFT_SQUAT_HOME_Y,
@@ -706,6 +770,34 @@
     particles: [],
     hearts: [],
     mouseBadges: [],
+
+    // 1. Treat Feeding State
+    activeTreat: null, // { type: 'bone'|'jerky'|'cheese', startX, startY, wasDragged, clickHeld }
+    eatingTreats: [],
+
+    // 2. Typing Combo & Overdrive State
+    combo: 0,
+    displayCombo: 0,
+    comboTimer: 0,
+    comboMaxWindow: 2.5,
+    comboBadgeAlpha: 0,
+    comboPop: 0,
+    turboBlend: 0,
+    overdriveBlend: 0,
+    shakeAmp: 0,
+    lastRepeatComboAt: 0,
+
+    // 3. Idle Yawn / Sleep / Snot Bubble State
+    idleTime: 0,
+    sleepGraceUntil: -1,
+    zzzParticles: [],
+    shockMarks: [],
+  };
+
+  const TREAT_META = {
+    bone: { name: '香脆肉骨头', badge: '嗷呜~ 香脆!', crumbColor: '#F6DFB7' },
+    jerky: { name: '炭烤小肉干', badge: '嗷呜~ 真香!', crumbColor: '#D46248' },
+    cheese: { name: '芝士奶球', badge: '嗷呜~ 浓郁!', crumbColor: '#FFD147' },
   };
 
   // =========================================================================
@@ -823,7 +915,161 @@
   }
 
   function spawnMouseBadge(x, y, text, color) {
-    inputState.mouseBadges.push({ x, y, text, color, life: 0, maxLife: 0.72 });
+    inputState.mouseBadges.push({ x, y, text, color, life: 0, maxLife: 0.78 });
+  }
+
+  function spawnZzz(x, y) {
+    const labels = ['z', 'Z', 'Zzz'];
+    inputState.zzzParticles.push({
+      x,
+      y,
+      baseX: x,
+      vy: -26 - Math.random() * 12,
+      swayAmp: 7 + Math.random() * 6,
+      swayPhase: Math.random() * Math.PI * 2,
+      text: labels[Math.floor(Math.random() * labels.length)],
+      size: 13 + Math.random() * 6,
+      life: 0,
+      maxLife: 2.1,
+    });
+  }
+
+  function spawnShockMark(x, y) {
+    inputState.shockMarks.push({ x, y, life: 0, maxLife: 0.52 });
+  }
+
+  // Locate closest puppy's mouth/face for treat feeding & anticipation
+  function findFeedTargetPlacement(sx, sy) {
+    let best = null;
+    for (const p of getActivePlacements()) {
+      const st = p.dog.state;
+      const mx = p.cx + (DOG_X + st.leanX + st.lookX * 14) * p.scale;
+      const my = p.baseY + (-178 + st.lookY * 9) * p.scale;
+      const dist = Math.hypot(sx - mx, sy - my);
+      const maxRadius = 152 * p.scale;
+      if (dist <= maxRadius && (!best || dist < best.dist)) {
+        best = { placement: p, mx, my, dist, proximity: 1 - dist / maxRadius };
+      }
+    }
+    return best;
+  }
+
+  function syncTreatUI() {
+    const activeType = inputState.activeTreat ? inputState.activeTreat.type : null;
+    for (const btn of treatBtns) {
+      btn.classList.toggle('is-active', btn.dataset.treat === activeType);
+    }
+  }
+
+  function cancelActiveTreat() {
+    if (!inputState.activeTreat) return;
+    inputState.activeTreat = null;
+    syncTreatUI();
+    canvas.style.cursor = 'default';
+  }
+
+  // Wake sleeping/yawning puppies — bursting snot bubbles if they were nodding off!
+  function wakeFromIdle(isSuddenAction = true) {
+    const wasIdle = inputState.idleTime >= 11.8;
+    inputState.idleTime = 0;
+    if (!wasIdle) return false;
+
+    let poppedAnyBubble = false;
+    for (const p of getActivePlacements()) {
+      const st = p.dog.state;
+      if (st.sleepBlend > 0.28 && isSuddenAction) {
+        poppedAnyBubble = true;
+        const noseStageX = p.cx + (DOG_X + st.leanX + 18) * p.scale;
+        const noseStageY = p.baseY + (-176 + st.sleepBlend * 12) * p.scale;
+
+        // Burst the snot bubble into sky-blue droplets + crisp white-blue ring!
+        spawnRipple(noseStageX, noseStageY, '#67C6FF', 34 * p.scale);
+        spawnSparkles(noseStageX, noseStageY, '#8ED8FF', 8);
+        spawnShockMark(p.cx + (DOG_X + st.leanX) * p.scale, p.baseY - 318 * p.scale);
+
+        st.wakeShockTimer = 0.55;
+        st.bounce = 1.32;
+        st.leftEarKick = 1.3;
+        st.rightEarKick = 1.3;
+        st.excitement = Math.max(st.excitement, 0.75);
+        if (p.dog.def.face.sunglasses) st.glintProgress = 0.01;
+      }
+      st.sleepBlend = 0;
+      st.yawnBlend = 0;
+    }
+
+    inputState.zzzParticles.length = 0;
+    if (poppedAnyBubble) {
+      playBubblePopSound();
+      statusHintEl.textContent = '啪！鼻涕泡破掉啦，小狗激灵一下瞬间清醒开工 ⚡';
+    }
+    return poppedAnyBubble;
+  }
+
+  function feedPuppy(feedHit, treatType) {
+    const { placement, mx, my } = feedHit;
+    const { dog, scale } = placement;
+    const st = dog.state;
+    const meta = TREAT_META[treatType] || TREAT_META.bone;
+
+    wakeFromIdle(false);
+
+    inputState.eatingTreats.push({
+      type: treatType,
+      startX: inputState.pointerStageX,
+      startY: inputState.pointerStageY,
+      targetX: mx,
+      targetY: my,
+      life: 0,
+      maxLife: 0.22,
+    });
+
+    st.chewTimer = 1.5;
+    st.petHoldUntil = Math.max(st.petHoldUntil, inputState.time + 1.65);
+    st.bounce = 1.15;
+    st.leftEarKick = 1.1;
+    st.rightEarKick = 1.1;
+    st.excitement = 1.0;
+
+    // Sunny Easter egg: sunglasses slide down briefly showing sparkling starry eyes!
+    if (dog.def.face.sunglasses) {
+      st.sunglassesPeekUntil = Math.max(st.sunglassesPeekUntil, inputState.time + 1.15);
+      st.glintProgress = 0.01;
+    }
+
+    spawnRipple(mx, my, '#FFB84D', 38 * scale);
+    spawnSparkles(mx, my - 6, meta.crumbColor, 7);
+    spawnSparkles(mx, my - 10, '#FFE066', 5);
+    for (let i = 0; i < 3; i++) {
+      spawnFloatingHeart(mx, my - 92 * scale, 15);
+    }
+    spawnMouseBadge(mx, my - 118 * scale, meta.badge, '#F59E0B');
+
+    playNomSound();
+    incrementAction(`投喂「${dog.name}」吃了${meta.name} 😋`);
+    cancelActiveTreat();
+  }
+
+  function registerComboHit(isRepeat) {
+    if (isRepeat) {
+      if (inputState.time - inputState.lastRepeatComboAt < 0.085) return;
+      inputState.lastRepeatComboAt = inputState.time;
+    }
+    inputState.combo += 1;
+    inputState.displayCombo = inputState.combo;
+    inputState.comboTimer = inputState.comboMaxWindow;
+    inputState.comboPop = 1.0;
+
+    if (inputState.combo >= 60) {
+      inputState.shakeAmp = Math.min(3.2, inputState.shakeAmp + 2.1);
+      for (const { dog } of getActivePlacements()) {
+        if (dog.def.face.sunglasses && dog.state.glintProgress === 0) {
+          dog.state.glintProgress = 0.01;
+        }
+      }
+    } else if (inputState.combo >= 30) {
+      inputState.shakeAmp = Math.min(1.4, inputState.shakeAmp + 0.7);
+    }
   }
 
   // =========================================================================
@@ -928,9 +1174,12 @@
       }
     }
 
-    if (inputState.popups.length >= 6) {
-      inputState.popups[0].fastFade = true;
-      inputState.popups[0].isHeld = false;
+    for (let i = 0; i <= inputState.popups.length - 5; i++) {
+      inputState.popups[i].fastFade = true;
+      inputState.popups[i].isHeld = false;
+    }
+    while (inputState.popups.length >= 7) {
+      inputState.popups.shift();
     }
 
     inputState.popups.push({
@@ -1024,6 +1273,53 @@
     exportBtn.blur();
   });
 
+  if (napBtn) {
+    napBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      cancelActiveTreat();
+      // First click enters yawn -> sleep; clicking while yawning jumps straight to deep snot-bubble sleep!
+      if (inputState.idleTime < 12) {
+        inputState.idleTime = 12.1;
+        statusHintEl.textContent = '哈欠～小狗开始眼皮打架犯困啦，马上吹鼻涕泡 💤（敲键或点击即可戳醒！）';
+      } else {
+        inputState.idleTime = 16.2;
+        statusHintEl.textContent = '呼噜噜…小狗正在点头吹鼻涕泡 🫧 敲一下键盘或点它试试！';
+      }
+      inputState.sleepGraceUntil = inputState.time + 0.85;
+      napBtn.blur();
+    });
+  }
+
+  for (const btn of treatBtns) {
+    btn.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const treatType = btn.dataset.treat || 'bone';
+      updatePointerStagePos(e.clientX, e.clientY);
+      wakeFromIdle(false);
+
+      if (inputState.activeTreat && inputState.activeTreat.type === treatType && inputState.activeTreat.clickHeld) {
+        cancelActiveTreat();
+        statusHintEl.textContent = '已放回小零食';
+        return;
+      }
+
+      inputState.activeTreat = {
+        type: treatType,
+        startX: e.clientX,
+        startY: e.clientY,
+        wasDragged: false,
+        clickHeld: false,
+      };
+      syncTreatUI();
+      canvas.style.cursor = 'grabbing';
+      const meta = TREAT_META[treatType] || TREAT_META.bone;
+      statusHintEl.textContent = `已拿起${meta.name} · 拖到小狗嘴边松手（或直接点击小狗）投喂 🍖`;
+      btn.blur();
+    });
+  }
+
   function resolveKeyTarget(code) {
     if (keyByCode.has(code)) return { keyObj: keyByCode.get(code), alias: null };
     const alias = CODE_ALIAS[code];
@@ -1046,6 +1342,10 @@
 
     if (!useRight) {
       const lp = st.leftPaw;
+      if (inputState.combo >= 28 && lp.isExtended) {
+        st.pawTrails.push({ x: lp.x, y: lp.y, alpha: 0.52 });
+        if (st.pawTrails.length > 6) st.pawTrails.shift();
+      }
       lp.prevX = lp.x;
       lp.prevY = lp.y;
       lp.ghostAlpha = lp.isExtended ? 0.34 : 0.16;
@@ -1058,6 +1358,10 @@
       st.leftEarKick = 1;
     } else {
       const rp = st.rightPaw;
+      if (inputState.combo >= 28 && rp.isExtended) {
+        st.pawTrails.push({ x: rp.x, y: rp.y, alpha: 0.52 });
+        if (st.pawTrails.length > 6) st.pawTrails.shift();
+      }
       rp.prevX = rp.x;
       rp.prevY = rp.y;
       rp.ghostAlpha = rp.isExtended ? 0.34 : 0.16;
@@ -1101,6 +1405,13 @@
       }
     }
 
+    if (e.code === 'Escape' && inputState.activeTreat) {
+      cancelActiveTreat();
+    }
+
+    const wokeFromBubble = wakeFromIdle(true);
+    registerComboHit(e.repeat);
+
     inputState.shiftDown = e.shiftKey;
     if (e.code === 'MetaLeft' || e.code === 'MetaRight') inputState.metaDown = true;
 
@@ -1121,15 +1432,25 @@
 
     if (!e.repeat && keyObj) {
       const placements = getActivePlacements();
+      const sparkColor =
+        inputState.combo >= 60 ? `hsl(${(inputState.time * 320) % 360}, 95%, 62%)` : '#FFB84D';
       for (const p of placements) {
         assignPawForDogKey(p.dog, keyObj);
         const pos = unitToStage(p, keyObj.ux, keyObj.uy);
-        spawnRipple(pos.sx, pos.sy, '#FFA234', Math.max(18, keyObj.w * p.scale * 0.72));
-        spawnSparkles(pos.sx, pos.sy - 3, '#FFB84D', placements.length > 1 ? 3 : 5);
+        spawnRipple(pos.sx, pos.sy, inputState.combo >= 60 ? sparkColor : '#FFA234', Math.max(18, keyObj.w * p.scale * 0.72));
+        spawnSparkles(pos.sx, pos.sy - 3, sparkColor, placements.length > 1 ? 3 : 5);
       }
 
       playKeySound(keyObj.w >= 1.75);
-      incrementAction(`按下按键：${displayInfo.main}`);
+      const comboSuffix =
+        inputState.combo >= 60
+          ? ` · 🌈 ${inputState.combo} 连击 燃起来了!!`
+          : inputState.combo >= 30
+            ? ` · 🔥 ${inputState.combo} 连击 手速飞起!`
+            : inputState.combo >= 10
+              ? ` · ⚡ ${inputState.combo} 连击!`
+              : '';
+      incrementAction(wokeFromBubble ? undefined : `按下按键：${displayInfo.main}${comboSuffix}`);
     }
   });
 
@@ -1213,9 +1534,42 @@
     updatePointerStagePos(e.clientX, e.clientY);
     syncMouseButtonsBitmask(e.buttons);
 
+    const moveStep = Math.hypot(
+      inputState.pointerStageX - inputState.prevPointerStageX,
+      inputState.pointerStageY - inputState.prevPointerStageY
+    );
+
+    // 1. Holding / Dragging a Treat: all puppies lock eyes on treat & drool!
+    if (inputState.activeTreat) {
+      if (
+        !inputState.activeTreat.clickHeld &&
+        Math.hypot(e.clientX - inputState.activeTreat.startX, e.clientY - inputState.activeTreat.startY) > 6
+      ) {
+        inputState.activeTreat.wasDragged = true;
+      }
+      canvas.style.cursor = 'grabbing';
+      const feedHit = findFeedTargetPlacement(inputState.pointerStageX, inputState.pointerStageY);
+      if (feedHit && feedHit.proximity > 0.25) {
+        const actionWord = inputState.activeTreat.clickHeld ? '点击即可' : '松手即可';
+        statusHintEl.textContent = `「${feedHit.placement.dog.name}」张嘴流口水啦 😋 ${actionWord}投喂！`;
+      }
+      return;
+    }
+
     if (e.target && e.target.closest && e.target.closest('.hud-top')) {
       canvas.style.cursor = 'default';
       return;
+    }
+
+    // Wake from idle sleep only on purposeful cursor movement (ignores tiny desk jitter)
+    if (inputState.idleTime >= 11.8) {
+      if (inputState.time >= inputState.sleepGraceUntil && moveStep > 18) {
+        wakeFromIdle(true);
+      } else {
+        return;
+      }
+    } else if (moveStep > 2.5) {
+      inputState.idleTime = 0;
     }
 
     // Check if user is petting/hovering a puppy's head!
@@ -1227,10 +1581,6 @@
       st.petHoldUntil = Math.max(st.petHoldUntil, inputState.time + 0.42);
       st.excitement = Math.min(1, st.excitement + 0.08);
 
-      const moveStep = Math.hypot(
-        inputState.pointerStageX - inputState.prevPointerStageX,
-        inputState.pointerStageY - inputState.prevPointerStageY
-      );
       if (moveStep > 4 && inputState.time - st.lastHeartAt > 0.18) {
         st.lastHeartAt = inputState.time;
         st.leftEarKick = Math.max(st.leftEarKick, 0.55);
@@ -1248,6 +1598,31 @@
   window.addEventListener('mousedown', (e) => {
     if (e.target && e.target.closest && e.target.closest('.hud-top')) return;
     updatePointerStagePos(e.clientX, e.clientY);
+
+    // Handle click-to-feed or right-click cancel when holding a treat
+    if (inputState.activeTreat) {
+      if (e.button === 2) {
+        cancelActiveTreat();
+        statusHintEl.textContent = '已取消投喂';
+        return;
+      }
+      if (e.button === 0 && inputState.activeTreat.clickHeld) {
+        const feedHit = findFeedTargetPlacement(inputState.pointerStageX, inputState.pointerStageY);
+        if (feedHit) {
+          feedPuppy(feedHit, inputState.activeTreat.type);
+        } else {
+          cancelActiveTreat();
+          statusHintEl.textContent = '已收起小零食';
+        }
+        return;
+      }
+    }
+
+    const wokeFromBubble = wakeFromIdle(true);
+    if (wokeFromBubble) {
+      incrementAction('戳破鼻涕泡叫醒了打瞌睡的小狗 ⚡');
+      return;
+    }
 
     // Clicking on a puppy's head gives an extra joyful pet bounce + hearts!
     const headHit = findHoveredHeadPlacement(inputState.pointerStageX, inputState.pointerStageY);
@@ -1315,6 +1690,22 @@
   });
 
   window.addEventListener('mouseup', (e) => {
+    if (inputState.activeTreat && e.button === 0) {
+      updatePointerStagePos(e.clientX, e.clientY);
+      if (inputState.activeTreat.wasDragged) {
+        const feedHit = findFeedTargetPlacement(inputState.pointerStageX, inputState.pointerStageY);
+        if (feedHit) {
+          feedPuppy(feedHit, inputState.activeTreat.type);
+        } else {
+          cancelActiveTreat();
+          statusHintEl.textContent = '零食没喂到嘴边，拖到小狗脸上松手即可投喂 🦴';
+        }
+      } else if (!inputState.activeTreat.clickHeld) {
+        inputState.activeTreat.clickHeld = true;
+        syncTreatUI();
+      }
+    }
+
     if (e.button === 0) inputState.leftDown = false;
     else if (e.button === 2) inputState.rightDown = false;
     else if (e.button === 1) inputState.middleDown = false;
@@ -1327,12 +1718,13 @@
 
   document.addEventListener('mouseleave', () => {
     inputState.pointerInWindow = false;
-    canvas.style.cursor = 'default';
+    if (!inputState.activeTreat) canvas.style.cursor = 'default';
   });
 
   window.addEventListener(
     'wheel',
     (e) => {
+      wakeFromIdle(true);
       inputState.wheelVel += clamp(e.deltaY, -120, 120) * 0.28;
       inputState.middleGlow = Math.max(inputState.middleGlow, 0.85);
       inputState.mouseActiveUntil = Math.max(inputState.mouseActiveUntil, inputState.time + 0.65);
@@ -1405,7 +1797,51 @@
     if (anyMouseHeld) {
       inputState.mouseActiveUntil = Math.max(inputState.mouseActiveUntil, inputState.time + 0.55);
     }
-    const mouseWanted = inputState.time < inputState.mouseActiveUntil;
+    const mouseWanted = inputState.time < inputState.mouseActiveUntil && !inputState.activeTreat;
+
+    // 1. Combo & Overdrive Decay
+    if (inputState.comboTimer > 0) {
+      inputState.comboTimer = Math.max(0, inputState.comboTimer - dt);
+      if (inputState.comboTimer <= 0) {
+        inputState.combo = 0;
+      }
+    }
+    inputState.comboPop *= Math.exp(-dt * 14);
+    inputState.shakeAmp *= Math.exp(-dt * 22);
+    const showCombo = inputState.combo >= 3;
+    inputState.comboBadgeAlpha = lerp(
+      inputState.comboBadgeAlpha,
+      showCombo ? 1 : 0,
+      1 - Math.exp(-dt * (showCombo ? 18 : 6))
+    );
+    inputState.turboBlend = lerp(
+      inputState.turboBlend,
+      inputState.combo >= 30 ? 1 : 0,
+      1 - Math.exp(-dt * 8)
+    );
+    inputState.overdriveBlend = lerp(
+      inputState.overdriveBlend,
+      inputState.combo >= 60 ? 1 : 0,
+      1 - Math.exp(-dt * 8)
+    );
+
+    // 2. Idle Drowsy / Yawn / Sleep Progression
+    const isUserBusy =
+      anyMouseHeld || inputState.activeCodes.size > 0 || Boolean(inputState.activeTreat);
+    if (isUserBusy) {
+      inputState.idleTime = 0;
+    } else {
+      inputState.idleTime += dt;
+    }
+
+    let globalYawnTarget = 0;
+    let globalSleepTarget = 0;
+    if (inputState.idleTime >= 12.0 && inputState.idleTime < 15.5) {
+      const yt = (inputState.idleTime - 12.0) / 3.5;
+      globalYawnTarget = Math.sin(clamp(yt, 0, 1) * Math.PI);
+    } else if (inputState.idleTime >= 15.5) {
+      globalSleepTarget = 1;
+    }
 
     for (const k of keysList) {
       k.press = lerp(k.press, k.isDown ? 1 : 0, 1 - Math.exp(-dt * 30));
@@ -1414,34 +1850,94 @@
 
     const activePlacements = getActivePlacements();
     const placementById = new Map(activePlacements.map((p) => [p.dog.id, p]));
-    const hoveredHead = inputState.pointerInWindow
-      ? findHoveredHeadPlacement(inputState.pointerStageX, inputState.pointerStageY)
+    const hoveredHead =
+      inputState.pointerInWindow && !inputState.activeTreat && inputState.idleTime < 12.0
+        ? findHoveredHeadPlacement(inputState.pointerStageX, inputState.pointerStageY)
+        : null;
+    const treatFeedHit = inputState.activeTreat
+      ? findFeedTargetPlacement(inputState.pointerStageX, inputState.pointerStageY)
       : null;
 
-    const pawFollow = 1 - Math.exp(-dt * 24);
+    const pawFollow = 1 - Math.exp(-dt * (inputState.combo >= 30 ? 32 : 24));
 
     for (const dogObj of dogsList) {
       const st = dogObj.state;
       const placement = placementById.get(dogObj.id);
 
-      // Check if this specific puppy's head is currently being petted!
+      // Chew & Wake Shock timers
+      st.chewTimer = Math.max(0, st.chewTimer - dt);
+      st.wakeShockTimer = Math.max(0, st.wakeShockTimer - dt);
+
+      // Sleep & Yawn smooth blends
+      const dogYawnTarget = st.chewTimer > 0 ? 0 : globalYawnTarget;
+      const dogSleepTarget = st.chewTimer > 0 ? 0 : globalSleepTarget;
+      st.yawnBlend = lerp(st.yawnBlend, dogYawnTarget, 1 - Math.exp(-dt * 7));
+      st.sleepBlend = lerp(st.sleepBlend, dogSleepTarget, 1 - Math.exp(-dt * 5));
+
+      // Spawn peaceful floating Zzz above sleeping visible puppies!
+      if (placement && st.sleepBlend > 0.65 && inputState.time - st.lastZzzAt > 1.05) {
+        st.lastZzzAt = inputState.time + Math.random() * 0.25;
+        spawnZzz(
+          placement.cx + (DOG_X + st.leanX + 36) * placement.scale,
+          placement.baseY - 285 * placement.scale
+        );
+      }
+
+      // Treat drooling & mouth anticipation
+      const isTreatTarget = Boolean(
+        treatFeedHit && treatFeedHit.placement.dog.id === dogObj.id && treatFeedHit.proximity > 0.18
+      );
+      const targetDrool = inputState.activeTreat && st.chewTimer <= 0 ? 1 : 0;
+      const targetAnticipation =
+        isTreatTarget && st.chewTimer <= 0 ? clamp(treatFeedHit.proximity * 1.45, 0, 1) : 0;
+      st.droolBlend = lerp(st.droolBlend, targetDrool, 1 - Math.exp(-dt * 10));
+      st.anticipationBlend = lerp(st.anticipationBlend, targetAnticipation, 1 - Math.exp(-dt * 15));
+
+      // Sunny Easter egg: sunglasses slide down revealing starry eyes when treat is near or just eaten!
+      const wantSunglassesPeek =
+        dogObj.def.face.sunglasses &&
+        (st.anticipationBlend > 0.32 || inputState.time < st.sunglassesPeekUntil);
+      st.sunglassesDrop = lerp(
+        st.sunglassesDrop,
+        wantSunglassesPeek ? 1 : 0,
+        1 - Math.exp(-dt * (wantSunglassesPeek ? 16 : 9))
+      );
+
+      // Check if this specific puppy's head is currently being petted (or happily chewing)!
       const isHeadHovered = Boolean(hoveredHead && hoveredHead.placement.dog.id === dogObj.id);
       if (isHeadHovered) {
         st.petHoldUntil = Math.max(st.petHoldUntil, inputState.time + 0.28);
       }
-      const isPetted = inputState.time < st.petHoldUntil;
+      const isPetted =
+        (inputState.time < st.petHoldUntil || st.chewTimer > 0) &&
+        st.sleepBlend < 0.2 &&
+        st.wakeShockTimer <= 0;
       st.happyBlend = lerp(st.happyBlend, isPetted ? 1 : 0, 1 - Math.exp(-dt * (isPetted ? 14 : 8)));
 
-      st.breathPhase += dt * 2.5;
-      if (isPetted) st.excitement = Math.max(st.excitement, 0.55);
+      const breathSpeed = st.sleepBlend > 0.3 ? 1.55 : 2.5 + inputState.turboBlend * 1.8;
+      st.breathPhase += dt * breathSpeed;
+
+      if (isPetted || inputState.activeTreat) st.excitement = Math.max(st.excitement, 0.65);
+      if (inputState.combo >= 10) {
+        st.excitement = Math.max(st.excitement, clamp(inputState.combo / 45, 0.35, 1.0));
+      }
       st.excitement = Math.max(0, st.excitement - dt * 0.45);
-      st.tailPhase += dt * (4.5 + st.excitement * 11.0);
+      const tailSpeed = st.sleepBlend > 0.4 ? 1.4 : 4.5 + st.excitement * 12.5 + inputState.overdriveBlend * 5.0;
+      st.tailPhase += dt * tailSpeed;
 
       st.leanX = lerp(st.leanX, st.targetLeanX, 1 - Math.exp(-dt * 9));
       st.targetLeanX *= Math.exp(-dt * 2.0);
 
-      // Continuous per-puppy 2.5D head & eye gaze tracking toward cursor!
-      if (inputState.time >= st.keyGlanceUntil) {
+      // Continuous per-puppy 2.5D head & eye gaze tracking (stares eagerly at treat, or relaxes when asleep!)
+      if (st.sleepBlend > 0.35) {
+        st.targetLookX = 0;
+        st.targetLookY = 0.28;
+      } else if (inputState.activeTreat && placement) {
+        const headStageX = placement.cx + (DOG_X + st.leanX) * placement.scale;
+        const headStageY = placement.baseY - 204 * placement.scale;
+        st.targetLookX = clamp((inputState.pointerStageX - headStageX) / 230, -1, 1);
+        st.targetLookY = clamp((inputState.pointerStageY - headStageY) / 185, -1, 1);
+      } else if (inputState.time >= st.keyGlanceUntil) {
         if (inputState.pointerInWindow && placement) {
           const headStageX = placement.cx + (DOG_X + st.leanX) * placement.scale;
           const headStageY = placement.baseY - 204 * placement.scale;
@@ -1457,6 +1953,11 @@
       st.leftEarKick *= Math.exp(-dt * 13);
       st.rightEarKick *= Math.exp(-dt * 13);
       st.bounce *= Math.exp(-dt * 15);
+
+      for (let ti = st.pawTrails.length - 1; ti >= 0; ti--) {
+        st.pawTrails[ti].alpha -= dt * 2.8;
+        if (st.pawTrails[ti].alpha <= 0) st.pawTrails.splice(ti, 1);
+      }
 
       st.blinkTimer -= dt;
       if (st.blinkTimer <= 0) {
@@ -1610,6 +2111,28 @@
       inputState.mouseBadges[i].life += dt;
       if (inputState.mouseBadges[i].life >= inputState.mouseBadges[i].maxLife) {
         inputState.mouseBadges.splice(i, 1);
+      }
+    }
+
+    for (let i = inputState.eatingTreats.length - 1; i >= 0; i--) {
+      inputState.eatingTreats[i].life += dt;
+      if (inputState.eatingTreats[i].life >= inputState.eatingTreats[i].maxLife) {
+        inputState.eatingTreats.splice(i, 1);
+      }
+    }
+
+    for (let i = inputState.zzzParticles.length - 1; i >= 0; i--) {
+      const z = inputState.zzzParticles[i];
+      z.life += dt;
+      z.y += z.vy * dt;
+      z.x = z.baseX + Math.sin(z.life * 3.2 + z.swayPhase) * z.swayAmp;
+      if (z.life >= z.maxLife) inputState.zzzParticles.splice(i, 1);
+    }
+
+    for (let i = inputState.shockMarks.length - 1; i >= 0; i--) {
+      inputState.shockMarks[i].life += dt;
+      if (inputState.shockMarks[i].life >= inputState.shockMarks[i].maxLife) {
+        inputState.shockMarks.splice(i, 1);
       }
     }
   }
@@ -2668,18 +3191,103 @@
     c.restore();
   }
 
+  // Peaceful Sleeping Closed Eyelids (︶ ︶ — curves down onto warm cheek fur!)
+  function drawSharedSleepingEye(c, def, x, y, side) {
+    c.save();
+    c.translate(x, y);
+    c.lineCap = 'round';
+
+    if (def.face.eyeSocketRim) {
+      // Subtle soft cream halo at top tips so even where tips meet dark fur they stay seamless
+      c.strokeStyle = 'rgba(253, 246, 234, 0.75)';
+      c.lineWidth = 6.4;
+      c.beginPath();
+      c.arc(0, -5, 16, Math.PI * 0.16, Math.PI * 0.84);
+      c.stroke();
+    }
+
+    c.strokeStyle = '#261B16';
+    c.lineWidth = 4.4;
+    c.beginPath();
+    c.arc(0, -5, 16, Math.PI * 0.16, Math.PI * 0.84);
+    c.stroke();
+
+    c.lineWidth = 2.7;
+    c.beginPath();
+    c.moveTo(side * 13, 3.5);
+    c.lineTo(side * 17.8, 6.4);
+    c.stroke();
+    c.restore();
+  }
+
+  // Sunny's Easter Egg: Sparkling Starry Eyes peeking above slid-down sunglasses!
+  function drawSunnyStarryPeekEyes(c, st) {
+    const drop = st.sunglassesDrop;
+    if (drop <= 0.06) return;
+
+    c.save();
+    c.globalAlpha = clamp(drop * 1.3, 0, 1);
+    const spin = inputState.time * 4.5;
+
+    for (const side of [-1, 1]) {
+      c.save();
+      c.translate(side * 37 + st.lookX * 3.5, -15 + st.lookY * 2.0);
+
+      c.fillStyle = '#FFFFFF';
+      c.beginPath();
+      c.ellipse(0, 0, 14.5, 13.5, 0, 0, Math.PI * 2);
+      c.fill();
+      c.strokeStyle = '#181411';
+      c.lineWidth = 2.2;
+      c.stroke();
+
+      c.fillStyle = '#181411';
+      c.beginPath();
+      c.ellipse(st.lookX * 2.5, st.lookY * 1.8, 11.2, 10.8, 0, 0, Math.PI * 2);
+      c.fill();
+
+      // Sparkling 4-point golden star inside pupil!
+      c.save();
+      c.translate(st.lookX * 2.5, -1 + st.lookY * 1.8);
+      c.rotate(Math.sin(spin + side) * 0.22);
+      const rOut = 7.4;
+      const rIn = 2.5;
+      c.fillStyle = '#FFE45E';
+      c.beginPath();
+      for (let i = 0; i < 8; i++) {
+        const rad = i % 2 === 0 ? rOut : rIn;
+        const a = (i * Math.PI) / 4;
+        if (i === 0) c.moveTo(Math.cos(a) * rad, Math.sin(a) * rad);
+        else c.lineTo(Math.cos(a) * rad, Math.sin(a) * rad);
+      }
+      c.closePath();
+      c.fill();
+      c.restore();
+
+      c.fillStyle = '#FFFFFF';
+      c.beginPath();
+      c.arc(-4.5, -4.5, 2.4, 0, Math.PI * 2);
+      c.fill();
+
+      c.restore();
+    }
+    c.restore();
+  }
+
   function drawSharedSunglasses(c, st) {
     c.save();
-    c.translate(st.lookX * 3.0, st.lookY * 1.8);
+    const dropOffset = st.sunglassesDrop * 15.5;
+    c.translate(st.lookX * 3.0, st.lookY * 1.8 + dropOffset);
+    c.rotate(st.sunglassesDrop * 0.035);
     const sgY = -12 - st.bounce * 1.5;
     c.strokeStyle = '#141518';
     c.lineWidth = 6.0;
     c.lineCap = 'round';
     c.beginPath();
-    c.moveTo(-76 - st.lookX * 19, sgY - 5 - st.lookY * 3);
+    c.moveTo(-76 - st.lookX * 19, sgY - 5 - st.lookY * 3 - dropOffset * 0.65);
     c.lineTo(-54, sgY - 2);
     c.moveTo(54, sgY - 2);
-    c.lineTo(76 - st.lookX * 19, sgY - 5 - st.lookY * 3);
+    c.lineTo(76 - st.lookX * 19, sgY - 5 - st.lookY * 3 - dropOffset * 0.65);
     c.moveTo(-16, sgY - 3);
     c.quadraticCurveTo(0, sgY - 7, 16, sgY - 3);
     c.stroke();
@@ -2737,6 +3345,11 @@
   function drawSharedFaceExpression(c, def, st) {
     const fSpec = def.face;
     const hb = st.happyBlend;
+    const sb = st.sleepBlend;
+    const yb = st.yawnBlend;
+    const ab = st.anticipationBlend;
+    const chewActive = st.chewTimer > 0 ? clamp(st.chewTimer / 0.3, 0, 1) : 0;
+    const chewPulse = st.chewTimer > 0 ? Math.sin(inputState.time * 22) : 0;
     const fx = st.lookX * 13.0;
     const fy = st.lookY * 8.8;
 
@@ -2746,7 +3359,7 @@
     // 1. Eyebrow Dots (豆眉 for Kuro & Daisy)
     if (def.head.browDots) {
       const bd = def.head.browDots;
-      const liftY = -hb * 3.5;
+      const liftY = -hb * 3.5 - ab * 3.0 - (st.wakeShockTimer > 0 ? 5.5 : 0) + sb * 3.0;
       c.fillStyle = bd.color;
       c.beginPath();
       c.ellipse(-bd.x + st.lookX * 1.5, bd.y + st.lookY * 1.2 + liftY, bd.rx, bd.ry, bd.tilt, 0, Math.PI * 2);
@@ -2756,12 +3369,13 @@
       c.fill();
     }
 
-    // 2. Cheek Blush (blooms rosy Daisy blush & /// strokes when petted on head for ALL characters!)
-    if (hb > 0.03) {
+    // 2. Cheek Blush (blooms rosy Daisy blush on head-pet, chewing, or warm sleep!)
+    const blushAlpha = Math.max(hb, ab * 0.45, sb * 0.32);
+    if (blushAlpha > 0.03) {
       c.save();
-      c.globalAlpha = hb;
+      c.globalAlpha = blushAlpha;
       for (const side of [-1, 1]) {
-        const bx = side * 63;
+        const bx = side * (63 + chewPulse * 2.5 * chewActive);
         const by = 19;
         const bg = c.createRadialGradient(bx, by, 2, bx, by, 26);
         bg.addColorStop(0, 'rgba(252, 142, 166, 0.8)');
@@ -2771,28 +3385,51 @@
         c.ellipse(bx, by, 26, 16, side * 0.08, 0, Math.PI * 2);
         c.fill();
 
-        c.strokeStyle = 'rgba(228, 104, 130, 0.65)';
-        c.lineWidth = 2.1;
-        c.lineCap = 'round';
-        for (const ox of [-6, 0, 6]) {
-          c.beginPath();
-          c.moveTo(bx + ox - 2, by + 3.5);
-          c.lineTo(bx + ox + 2.5, by - 3.5);
-          c.stroke();
+        if (hb > 0.2) {
+          c.strokeStyle = 'rgba(228, 104, 130, 0.65)';
+          c.lineWidth = 2.1;
+          c.lineCap = 'round';
+          for (const ox of [-6, 0, 6]) {
+            c.beginPath();
+            c.moveTo(bx + ox - 2, by + 3.5);
+            c.lineTo(bx + ox + 2.5, by - 3.5);
+            c.stroke();
+          }
         }
       }
       c.restore();
     }
 
-    // 3. Eyes (Sunglasses for Sunny; Round Glossy <-> Happy Crescent for Daisy & Kuro!)
+    // 3. Eyes: Sunglasses (with Starry Peek!) | Sleeping (︶ ︶) | Yawning (squint + tear) | Happy (◠ ◠) | Calm Round
     if (fSpec.sunglasses) {
+      drawSunnyStarryPeekEyes(c, st);
       drawSharedSunglasses(c, st);
+    } else if (sb > 0.55) {
+      drawSharedSleepingEye(c, def, -40, -2, -1);
+      drawSharedSleepingEye(c, def, 40, -2, 1);
+    } else if (yb > 0.42) {
+      drawSharedHappyCrescentEye(c, def, -40, -5, -1, st.lookX, st.lookY, 0);
+      drawSharedHappyCrescentEye(c, def, 40, -5, 1, st.lookX, st.lookY, 0);
+      // Tiny sleepy yawn teardrop at outer eye corners!
+      c.fillStyle = '#9BE2FF';
+      c.strokeStyle = 'rgba(56, 138, 196, 0.55)';
+      c.lineWidth = 1.3;
+      for (const side of [-1, 1]) {
+        c.beginPath();
+        c.ellipse(side * 57, 2, 4.2 * yb, 5.4 * yb, side * 0.35, 0, Math.PI * 2);
+        c.fill();
+        c.stroke();
+      }
     } else {
-      const blinkAmount = st.blinkProgress > 0 ? Math.sin(st.blinkProgress) : 0;
+      const blinkAmount = st.wakeShockTimer > 0 ? 0 : st.blinkProgress > 0 ? Math.sin(st.blinkProgress) : 0;
       if (hb < 0.5) {
-        const squint = hb * 1.65;
-        drawSharedRoundGlossyEye(c, def, -40, -3, -1, blinkAmount, st.lookX, st.lookY, squint);
-        drawSharedRoundGlossyEye(c, def, 40, -3, 1, blinkAmount, st.lookX, st.lookY, squint);
+        const squint = Math.max(hb * 1.65, sb * 1.2, yb * 1.3);
+        const shockScale = st.wakeShockTimer > 0 ? 1.12 : 1.0;
+        c.save();
+        c.scale(shockScale, shockScale);
+        drawSharedRoundGlossyEye(c, def, -40 / shockScale, -3, -1, blinkAmount, st.lookX, st.lookY, squint);
+        drawSharedRoundGlossyEye(c, def, 40 / shockScale, -3, 1, blinkAmount, st.lookX, st.lookY, squint);
+        c.restore();
       } else {
         drawSharedHappyCrescentEye(c, def, -41, -7, -1, st.lookX, st.lookY, st.bounce);
         drawSharedHappyCrescentEye(c, def, 41, -7, 1, st.lookX, st.lookY, st.bounce);
@@ -2807,93 +3444,159 @@
       c.fill();
     }
 
-    // 5. Mouth Morph: Sweet Closed ω Smile (hb = 0) <-> Daisy's Open Laugh + Bouncy Pink Tongue (hb = 1)!
-    const pant = Math.sin(inputState.time * 5.0) * 1.8 + st.excitement * 4.2;
-    const lipW = lerp(20, 29, hb);
-    const lipCornerY = lerp(29.5, 20, hb);
-    const lipCenterY = lerp(26, 22, hb);
-
-    if (hb > 0.08) {
-      const openDepth = hb * (40 + pant);
-      const mouthPath = () => {
-        c.beginPath();
-        c.moveTo(-lipW, lipCornerY + 2);
-        c.quadraticCurveTo(0, lipCenterY + 8 * hb, lipW, lipCornerY + 2);
-        c.bezierCurveTo(
-          lipW * 0.9,
-          lipCenterY + openDepth * 0.72,
-          lipW * 0.48,
-          lipCenterY + openDepth,
-          0,
-          lipCenterY + openDepth
-        );
-        c.bezierCurveTo(
-          -lipW * 0.48,
-          lipCenterY + openDepth,
-          -lipW * 0.9,
-          lipCenterY + openDepth * 0.72,
-          -lipW,
-          lipCornerY + 2
-        );
-        c.closePath();
-      };
-
+    // 5. Mouth State Machine: Yawning 'O' | Happy Laugh / Treat Anticipation / Chewing | Calm ω Smile
+    if (yb > 0.16 && hb < 0.3) {
+      // Cute sleepy oval 'O' yawn!
+      const rx = 11 + yb * 6;
+      const ry = 6 + yb * 17;
+      const cy = 28 + yb * 8;
       c.save();
-      mouthPath();
+      c.beginPath();
+      c.ellipse(0, cy, rx, ry, 0, 0, Math.PI * 2);
       c.fillStyle = '#4B2424';
       c.fill();
 
-      // Bouncing rosy-pink puppy tongue inside open laugh!
       c.save();
       c.clip();
-      const tongueBottom = lipCenterY + openDepth;
-      const tg = c.createLinearGradient(0, lipCenterY + 6, 0, tongueBottom + 4);
-      tg.addColorStop(0, '#E87A8A');
-      tg.addColorStop(0.35, '#F797A6');
-      tg.addColorStop(1, '#FBAAB7');
-      c.fillStyle = tg;
+      c.fillStyle = '#F797A6';
       c.beginPath();
-      c.ellipse(0, lipCenterY + openDepth * 0.62, 18 * hb, 21 * hb, 0, 0, Math.PI * 2);
+      c.ellipse(0, cy + ry * 0.55, rx * 0.85, ry * 0.65, 0, 0, Math.PI * 2);
       c.fill();
-
-      c.strokeStyle = '#D96D7D';
-      c.lineWidth = 2.0;
-      c.lineCap = 'round';
-      c.beginPath();
-      c.moveTo(0, lipCenterY + 8 * hb);
-      c.lineTo(0, lipCenterY + openDepth * 0.68);
-      c.stroke();
       c.restore();
 
-      mouthPath();
+      c.beginPath();
+      c.ellipse(0, cy, rx, ry, 0, 0, Math.PI * 2);
       c.strokeStyle = fSpec.lipStroke;
       c.lineWidth = 3.0;
-      c.lineJoin = 'round';
       c.stroke();
+      c.restore();
+    } else {
+      const openBlend = clamp(
+        chewActive > 0 ? 0.32 + (chewPulse * 0.5 + 0.5) * 0.55 : Math.max(hb, ab * 0.95),
+        0,
+        1
+      );
+      const pant = Math.sin(inputState.time * 5.0) * 1.8 + st.excitement * 4.2;
+      const lipW = lerp(20, 29, openBlend);
+      const lipCornerY = lerp(29.5, 20, openBlend);
+      const lipCenterY = lerp(26, 22, openBlend);
+
+      if (openBlend > 0.08) {
+        const openDepth = openBlend * (40 + pant);
+        const mouthPath = () => {
+          c.beginPath();
+          c.moveTo(-lipW, lipCornerY + 2);
+          c.quadraticCurveTo(0, lipCenterY + 8 * openBlend, lipW, lipCornerY + 2);
+          c.bezierCurveTo(
+            lipW * 0.9,
+            lipCenterY + openDepth * 0.72,
+            lipW * 0.48,
+            lipCenterY + openDepth,
+            0,
+            lipCenterY + openDepth
+          );
+          c.bezierCurveTo(
+            -lipW * 0.48,
+            lipCenterY + openDepth,
+            -lipW * 0.9,
+            lipCenterY + openDepth * 0.72,
+            -lipW,
+            lipCornerY + 2
+          );
+          c.closePath();
+        };
+
+        c.save();
+        mouthPath();
+        c.fillStyle = '#4B2424';
+        c.fill();
+
+        // Bouncing rosy-pink puppy tongue inside open laugh / chomp!
+        c.save();
+        c.clip();
+        const tongueBottom = lipCenterY + openDepth;
+        const tg = c.createLinearGradient(0, lipCenterY + 6, 0, tongueBottom + 4);
+        tg.addColorStop(0, '#E87A8A');
+        tg.addColorStop(0.35, '#F797A6');
+        tg.addColorStop(1, '#FBAAB7');
+        c.fillStyle = tg;
+        c.beginPath();
+        c.ellipse(0, lipCenterY + openDepth * 0.62, 18 * openBlend, 21 * openBlend, 0, 0, Math.PI * 2);
+        c.fill();
+
+        c.strokeStyle = '#D96D7D';
+        c.lineWidth = 2.0;
+        c.lineCap = 'round';
+        c.beginPath();
+        c.moveTo(0, lipCenterY + 8 * openBlend);
+        c.lineTo(0, lipCenterY + openDepth * 0.68);
+        c.stroke();
+        c.restore();
+
+        mouthPath();
+        c.strokeStyle = fSpec.lipStroke;
+        c.lineWidth = 3.0;
+        c.lineJoin = 'round';
+        c.stroke();
+        c.restore();
+      }
+
+      // Upper ω lip line
+      c.strokeStyle = fSpec.lipStroke;
+      c.lineWidth = 3.1;
+      c.lineCap = 'round';
+      c.lineJoin = 'round';
+      c.beginPath();
+      c.moveTo(0, 19);
+      c.lineTo(0, lipCenterY);
+      c.moveTo(-lipW - 1, lipCornerY);
+      c.bezierCurveTo(-lipW * 0.68, lipCenterY + 8, -5, lipCenterY + 6, 0, lipCenterY);
+      c.bezierCurveTo(5, lipCenterY + 6, lipW * 0.68, lipCenterY + 8, lipW + 1, lipCornerY - 0.5);
+      c.stroke();
+    }
+
+    // 5b. Sparkling Drool Droplet (💧) when eyeing a treat!
+    if (st.droolBlend > 0.05) {
+      const db = st.droolBlend;
+      const dripStretch = Math.sin(inputState.time * 6.5 + def.phaseOffset) * 2.4;
+      const dx = 22 + ab * 5;
+      const dy = 31 + ab * 6;
+      c.save();
+      c.globalAlpha = db * 0.92;
+      c.translate(dx, dy);
+
+      c.beginPath();
+      c.moveTo(0, -3);
+      c.bezierCurveTo(5.5, 4, 6.2, 13 + dripStretch, 0, 15 + dripStretch);
+      c.bezierCurveTo(-6.2, 13 + dripStretch, -5.5, 4, 0, -3);
+      c.closePath();
+
+      const dg = c.createLinearGradient(0, -2, 0, 16 + dripStretch);
+      dg.addColorStop(0, '#E0F7FF');
+      dg.addColorStop(1, '#7CD4FF');
+      c.fillStyle = dg;
+      c.fill();
+      c.strokeStyle = '#3898EC';
+      c.lineWidth = 1.5;
+      c.stroke();
+
+      c.fillStyle = '#FFFFFF';
+      c.beginPath();
+      c.arc(-1.6, 8 + dripStretch * 0.6, 1.6, 0, Math.PI * 2);
+      c.fill();
       c.restore();
     }
 
-    // Upper ω lip line (shared seamlessly across calm & laughing states!)
-    c.strokeStyle = fSpec.lipStroke;
-    c.lineWidth = 3.1;
-    c.lineCap = 'round';
-    c.lineJoin = 'round';
-    c.beginPath();
-    c.moveTo(0, 19);
-    c.lineTo(0, lipCenterY);
-    c.moveTo(-lipW - 1, lipCornerY);
-    c.bezierCurveTo(-lipW * 0.68, lipCenterY + 8, -5, lipCenterY + 6, 0, lipCenterY);
-    c.bezierCurveTo(5, lipCenterY + 6, lipW * 0.68, lipCenterY + 8, lipW + 1, lipCornerY - 0.5);
-    c.stroke();
-
-    // 6. Sunny's Signature Mini White Bone (stays clenched at left mouth corner even while laughing!)
+    // 6. Sunny's Signature Mini White Bone (stays clenched at left mouth corner!)
     if (fSpec.mouthBone) {
-      const boneWiggle = Math.sin(inputState.time * 4.2) * 0.06 + st.excitement * 0.14;
-      const boneX = lerp(-12, -23, hb);
-      const boneY = lerp(31, 24, hb);
+      const openRef = Math.max(hb, ab * 0.8);
+      const boneWiggle =
+        Math.sin(inputState.time * 4.2) * 0.06 + st.excitement * 0.14 + chewPulse * 0.12 * chewActive;
+      const boneX = lerp(-12, -23, openRef);
+      const boneY = lerp(31, 24, openRef);
       c.save();
       c.translate(boneX, boneY);
-      c.rotate(-0.46 + hb * 0.1 + boneWiggle);
+      c.rotate(-0.46 + openRef * 0.1 + boneWiggle);
 
       c.beginPath();
       c.moveTo(2, -3.4);
@@ -2966,18 +3669,86 @@
     c.ellipse(-3.6, 10.5, 3.8, 1.9, -0.28, 0, Math.PI * 2);
     c.fill();
 
+    // 9. Sleeping Snot Bubble (🫧 鼻涕泡 — expands & contracts with sleepy breath!)
+    if (sb > 0.25) {
+      const bubbleBreath = Math.sin(st.breathPhase * 0.75) * 0.5 + 0.5;
+      const br = (13.5 + bubbleBreath * 11.5) * clamp((sb - 0.2) / 0.8, 0, 1);
+      const bx = 11 + br * 0.78;
+      const by = 14 - br * 0.28;
+
+      c.save();
+      const bGrad = c.createRadialGradient(bx - br * 0.3, by - br * 0.3, br * 0.1, bx, by, br);
+      bGrad.addColorStop(0, 'rgba(255, 255, 255, 0.84)');
+      bGrad.addColorStop(0.52, 'rgba(170, 228, 255, 0.54)');
+      bGrad.addColorStop(1, 'rgba(86, 188, 255, 0.82)');
+      c.fillStyle = bGrad;
+      c.beginPath();
+      c.arc(bx, by, br, 0, Math.PI * 2);
+      c.fill();
+
+      c.strokeStyle = 'rgba(52, 152, 232, 0.92)';
+      c.lineWidth = 2.1;
+      c.stroke();
+
+      c.strokeStyle = 'rgba(255, 255, 255, 0.95)';
+      c.lineWidth = 2.6;
+      c.lineCap = 'round';
+      c.beginPath();
+      c.arc(bx, by, br * 0.68, Math.PI * 1.12, Math.PI * 1.54);
+      c.stroke();
+      c.restore();
+    }
+
+    // 10. Turbo Typing Effort Sweat Drop (💦 on 30+ Combo!)
+    if (inputState.turboBlend > 0.06 && sb < 0.2) {
+      const swAlpha = inputState.turboBlend;
+      const swBob = Math.sin(inputState.time * 9 + def.phaseOffset) * 2.2;
+      c.save();
+      c.globalAlpha = swAlpha;
+      c.translate(68, -46 + swBob);
+      c.rotate(0.18);
+
+      c.beginPath();
+      c.moveTo(0, -9);
+      c.bezierCurveTo(6.5, -1, 7.5, 8, 0, 10.5);
+      c.bezierCurveTo(-7.5, 8, -6.5, -1, 0, -9);
+      c.closePath();
+      const sg = c.createLinearGradient(0, -9, 0, 11);
+      sg.addColorStop(0, '#E6F8FF');
+      sg.addColorStop(1, '#5CC4FF');
+      c.fillStyle = sg;
+      c.fill();
+      c.strokeStyle = '#2589D8';
+      c.lineWidth = 1.8;
+      c.stroke();
+
+      c.fillStyle = '#FFFFFF';
+      c.beginPath();
+      c.arc(-2.0, 4.0, 1.8, 0, Math.PI * 2);
+      c.fill();
+      c.restore();
+    }
+
     c.restore();
   }
 
   function drawSharedHeadAndFace(c, def, st, bodyX, breath) {
     const hSpec = def.head;
+    const sleepNod = st.sleepBlend * (10.5 + Math.sin(st.breathPhase * 0.75) * 4.2);
+    const yawnLift = -st.yawnBlend * 5.5;
+    const chewSquash = st.chewTimer > 0 ? Math.sin(inputState.time * 22) * 0.026 : 0;
+
     const headX = bodyX + st.lookX * 11;
-    const headY = -204 + breath * 0.85 + st.lookY * 6.5 + st.bounce * 4.5;
-    const headTilt = def.baseTilt + st.leanX * 0.002 + st.lookX * 0.11;
+    const headY = -204 + breath * 0.85 + st.lookY * 6.5 - st.bounce * 4.5 + sleepNod + yawnLift;
+    const headTilt =
+      def.baseTilt + st.leanX * 0.002 + st.lookX * 0.11 + st.sleepBlend * 0.055 - st.yawnBlend * 0.04;
 
     c.save();
     c.translate(headX, headY);
     c.rotate(headTilt);
+    if (chewSquash !== 0) {
+      c.scale(1 + chewSquash, 1 - chewSquash * 0.7);
+    }
 
     const crownShiftX = -st.lookX * 3.5;
     const defineCrownFluff = () => {
@@ -3129,29 +3900,50 @@
   function drawKeycapLocal(c, k, dt) {
     const pressOffset = k.press * 2.0;
     const glow = k.glow;
+    const od = inputState.overdriveBlend;
+    const rgbHue = ((inputState.time * 260 + (k.lcx + 124) * 1.45) % 360 + 360) % 360;
 
     c.save();
     if (glow > 0.04) {
       c.save();
-      c.shadowColor = 'rgba(255, 162, 42, 0.92)';
+      c.shadowColor = od > 0.2 ? `hsla(${rgbHue}, 95%, 62%, 0.95)` : 'rgba(255, 162, 42, 0.92)';
       c.shadowBlur = 10 * glow;
       roundRectPath(c, k.lx - 0.4, k.ly + pressOffset - 0.4, k.w + 0.8, k.h, 4.0);
-      c.fillStyle = `rgba(255, 174, 58, ${(0.58 * glow).toFixed(3)})`;
+      c.fillStyle =
+        od > 0.2
+          ? `hsla(${rgbHue}, 95%, 62%, ${(0.65 * glow).toFixed(3)})`
+          : `rgba(255, 174, 58, ${(0.58 * glow).toFixed(3)})`;
       c.fill();
       c.restore();
     }
 
     roundRectPath(c, k.lx, k.ly + 1.2, k.w, k.h - 0.4, 3.4);
-    c.fillStyle = glow > 0.12 ? '#D97412' : k.accent ? '#D47F22' : dt.capSide;
+    c.fillStyle =
+      glow > 0.12
+        ? od > 0.2
+          ? `hsl(${rgbHue}, 82%, 44%)`
+          : '#D97412'
+        : od > 0.15
+          ? `hsl(${rgbHue}, 75%, 68%)`
+          : k.accent
+            ? '#D47F22'
+            : dt.capSide;
     c.fill();
 
     const capH = Math.max(5.5, k.h - 2.6);
     roundRectPath(c, k.lx + 0.3, k.ly + pressOffset, k.w - 0.6, capH, 3.0);
     if (glow > 0.06) {
       const g = c.createLinearGradient(k.lx, k.ly + pressOffset, k.lx, k.ly + pressOffset + capH);
-      g.addColorStop(0, '#FFD676');
-      g.addColorStop(1, '#FF9220');
+      if (od > 0.2) {
+        g.addColorStop(0, `hsl(${rgbHue}, 98%, 78%)`);
+        g.addColorStop(1, `hsl(${(rgbHue + 28) % 360}, 92%, 56%)`);
+      } else {
+        g.addColorStop(0, '#FFD676');
+        g.addColorStop(1, '#FF9220');
+      }
       c.fillStyle = g;
+    } else if (od > 0.08) {
+      c.fillStyle = `hsl(${rgbHue}, 90%, 91%)`;
     } else if (k.accent) {
       const ag = c.createLinearGradient(k.lx, k.ly, k.lx, k.ly + capH);
       ag.addColorStop(0, dt.accentTop1);
@@ -3167,7 +3959,7 @@
       c.font = `700 ${fontSize}px -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif`;
       c.textAlign = 'center';
       c.textBaseline = 'middle';
-      c.fillStyle = glow > 0.25 ? '#3F1D04' : k.accent ? '#FFFFFF' : dt.capText;
+      c.fillStyle = glow > 0.25 ? '#3F1D04' : k.accent && od < 0.1 ? '#FFFFFF' : dt.capText;
       c.fillText(k.label, k.lcx, k.ly + pressOffset + capH * 0.54);
     }
     c.restore();
@@ -3192,6 +3984,23 @@
     c.save();
     c.translate(KB_LOCAL.cx, KB_LOCAL.cy);
     c.rotate(KB_LOCAL.angle);
+
+    // Rainbow RGB Underglow on 60+ Overdrive Combo!
+    if (inputState.overdriveBlend > 0.03) {
+      const od = inputState.overdriveBlend;
+      const baseHue = (inputState.time * 240) % 360;
+      c.save();
+      const rgbGrad = c.createLinearGradient(-kbHW - 8, 0, kbHW + 8, 0);
+      for (let s = 0; s <= 4; s++) {
+        rgbGrad.addColorStop(s / 4, `hsla(${(baseHue + s * 72) % 360}, 96%, 60%, ${(0.68 * od).toFixed(3)})`);
+      }
+      c.shadowColor = `hsla(${(baseHue + 90) % 360}, 96%, 60%, ${(0.85 * od).toFixed(3)})`;
+      c.shadowBlur = 18 * od;
+      roundRectPath(c, -kbHW - 4, -kbHH - 2, KB_LOCAL.w + 8, KB_LOCAL.h + 10, 15);
+      c.fillStyle = rgbGrad;
+      c.fill();
+      c.restore();
+    }
 
     c.fillStyle = isDarkTheme ? 'rgba(0, 0, 0, 0.44)' : 'rgba(56, 78, 112, 0.2)';
     roundRectPath(c, -kbHW + 2, -kbHH + 6, KB_LOCAL.w, KB_LOCAL.h, 12);
@@ -3397,6 +4206,58 @@
   // =========================================================================
   // Master Puppy Workstation Assembler (100% Shared Across All Characters!)
   // =========================================================================
+  function drawPuppyOverdriveAura(c, bodyX) {
+    const od = inputState.overdriveBlend;
+    if (od <= 0.04) return;
+
+    c.save();
+    c.globalAlpha = od * 0.88;
+    const t = inputState.time * 9.5;
+
+    // Warm golden-coral aura halo behind puppy
+    const halo = c.createRadialGradient(bodyX, -155, 25, bodyX, -155, 165);
+    halo.addColorStop(0, 'rgba(255, 196, 68, 0.42)');
+    halo.addColorStop(0.55, 'rgba(255, 112, 52, 0.22)');
+    halo.addColorStop(1, 'rgba(255, 92, 42, 0)');
+    c.fillStyle = halo;
+    c.beginPath();
+    c.arc(bodyX, -155, 165, 0, Math.PI * 2);
+    c.fill();
+
+    // Multi-pronged roaring cartoon fire tongues rising behind shoulders!
+    for (const side of [-1, 1]) {
+      const flick = Math.sin(t * 1.3 + side) * 5;
+      c.save();
+      c.translate(bodyX + side * 92, -108);
+      c.rotate(side * 0.22);
+
+      c.beginPath();
+      c.moveTo(-22, 26);
+      c.quadraticCurveTo(-28, -4, -14, -28 + flick * 0.5);
+      c.quadraticCurveTo(-6, -10, 0, -44 - flick);
+      c.quadraticCurveTo(8, -12, 16, -26 - flick * 0.4);
+      c.quadraticCurveTo(28, -2, 20, 26);
+      c.closePath();
+
+      const fg = c.createLinearGradient(0, -46, 0, 26);
+      fg.addColorStop(0, '#FFF176');
+      fg.addColorStop(0.45, '#FF8F2B');
+      fg.addColorStop(1, '#F43F28');
+      c.fillStyle = fg;
+      c.fill();
+
+      c.beginPath();
+      c.moveTo(-10, 24);
+      c.quadraticCurveTo(-8, 2, 0, -20 - flick * 0.6);
+      c.quadraticCurveTo(8, 2, 10, 24);
+      c.closePath();
+      c.fillStyle = '#FFF9C4';
+      c.fill();
+      c.restore();
+    }
+    c.restore();
+  }
+
   function drawPuppyWorkstation(c, placement, isExport = false) {
     const { dog, cx, baseY, scale } = placement;
     const def = dog.def;
@@ -3407,6 +4268,11 @@
     c.save();
     c.translate(cx, baseY);
     c.scale(scale, scale);
+
+    // 0. Overdrive Flame Aura behind puppy (60+ Combo)
+    if (!isExport) {
+      drawPuppyOverdriveAura(c, bodyX);
+    }
 
     // 1. Ground Shadow
     if (!isExport) {
@@ -3434,7 +4300,21 @@
     // 3. Unobstructed Front Keyboard & Right-Side Mouse
     drawWorkstationDesk(c, def);
 
-    // 4. Unified Fixed-Shoulder Front Limbs
+    // 4. Unified Fixed-Shoulder Front Limbs (+ Turbo Multi-Paw Afterimages!)
+    if (!isExport && st.pawTrails.length > 0) {
+      for (const tr of st.pawTrails) {
+        c.save();
+        c.globalAlpha = tr.alpha * 0.55;
+        c.fillStyle = inputState.overdriveBlend > 0.3 ? '#FFD56B' : def.limb.pawGrad[0];
+        c.beginPath();
+        c.ellipse(tr.x, tr.y - 4, 17, 13.5, 0, 0, Math.PI * 2);
+        c.fill();
+        c.strokeStyle = def.outline;
+        c.lineWidth = 1.6;
+        c.stroke();
+        c.restore();
+      }
+    }
     const shoulderY = SHOULDER_Y + breath * 0.45;
     const lp = st.leftPaw;
     if (lp.ghostAlpha > 0.03 && lp.isExtended) {
@@ -3581,9 +4461,9 @@
       ctx.scale(pop, pop);
       ctx.globalAlpha = fade;
 
-      const bw = 48;
-      const bh = 22;
-      roundRectPath(ctx, -bw * 0.5, -bh * 0.5, bw, bh, 11);
+      const bw = Math.max(48, b.text.length * 13 + 18);
+      const bh = 24;
+      roundRectPath(ctx, -bw * 0.5, -bh * 0.5, bw, bh, 12);
       ctx.fillStyle = b.color;
       ctx.fill();
       ctx.strokeStyle = 'rgba(255, 255, 255, 0.92)';
@@ -3597,6 +4477,278 @@
       ctx.fillText(b.text, 0, 0.5);
       ctx.restore();
     }
+
+    // Floating Sleep Zzz Particles
+    for (const z of inputState.zzzParticles) {
+      const t = z.life / z.maxLife;
+      const alpha = t < 0.2 ? t / 0.2 : 1 - easeOutCubic((t - 0.2) / 0.8);
+      ctx.save();
+      ctx.translate(z.x, z.y);
+      ctx.rotate(-0.14 + Math.sin(z.life * 2.5) * 0.1);
+      ctx.globalAlpha = alpha * 0.92;
+      ctx.font = `900 ${Math.round((z.size + 4) * (0.88 + t * 0.35))}px -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.lineWidth = 4.8;
+      ctx.strokeStyle = isDarkTheme ? 'rgba(20, 26, 38, 0.9)' : '#FFFFFF';
+      ctx.strokeText(z.text, 0, 0);
+      ctx.fillStyle = '#3B82F6';
+      ctx.fillText(z.text, 0, 0);
+      ctx.restore();
+    }
+
+    // Wake-Up Manga Startle Marks ('!!' + radiating ticks)
+    for (const sm of inputState.shockMarks) {
+      const t = sm.life / sm.maxLife;
+      const pop = t < 0.22 ? easeOutBack(t / 0.22) : 1;
+      const alpha = t > 0.45 ? 1 - easeOutCubic((t - 0.45) / 0.55) : 1;
+      ctx.save();
+      ctx.translate(sm.x, sm.y - easeOutCubic(t) * 10);
+      ctx.scale(pop, pop);
+      ctx.globalAlpha = alpha;
+
+      ctx.strokeStyle = '#FF6B4A';
+      ctx.lineWidth = 3.2;
+      ctx.lineCap = 'round';
+      for (const ang of [-0.55, 0, 0.55]) {
+        ctx.save();
+        ctx.rotate(ang);
+        ctx.beginPath();
+        ctx.moveTo(0, -4);
+        ctx.lineTo(0, -18);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      ctx.font = '900 22px -apple-system, BlinkMacSystemFont, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.lineWidth = 4.5;
+      ctx.strokeStyle = '#FFFFFF';
+      ctx.strokeText('!!', 0, -28);
+      ctx.fillStyle = '#FF4D38';
+      ctx.fillText('!!', 0, -28);
+      ctx.restore();
+    }
+  }
+
+  // Vector Treat Icons (Bone 🦴 / Jerky 🥩 / Cheese 🧀)
+  function drawVectorTreat(c, type, x, y, scale = 1, rot = 0) {
+    c.save();
+    c.translate(x, y);
+    c.rotate(rot);
+    c.scale(scale, scale);
+
+    // Soft drop shadow
+    c.fillStyle = 'rgba(30, 38, 52, 0.2)';
+    c.beginPath();
+    c.ellipse(2, 10, 26, 10, 0, 0, Math.PI * 2);
+    c.fill();
+
+    if (type === 'jerky') {
+      // Glossy Roasted Meat Jerky Strip with Grill Marks
+      roundRectPath(c, -25, -13, 50, 26, 11);
+      const jg = c.createLinearGradient(-22, -13, 22, 13);
+      jg.addColorStop(0, '#E2684B');
+      jg.addColorStop(0.5, '#C4452E');
+      jg.addColorStop(1, '#982E1D');
+      c.fillStyle = jg;
+      c.fill();
+      c.strokeStyle = '#4A1910';
+      c.lineWidth = 2.8;
+      c.stroke();
+
+      c.strokeStyle = 'rgba(62, 18, 10, 0.55)';
+      c.lineWidth = 2.6;
+      c.lineCap = 'round';
+      for (const gx of [-12, 0, 12]) {
+        c.beginPath();
+        c.moveTo(gx - 3, -7);
+        c.lineTo(gx + 3, 7);
+        c.stroke();
+      }
+
+      c.strokeStyle = 'rgba(255, 220, 206, 0.7)';
+      c.lineWidth = 2.4;
+      c.beginPath();
+      c.moveTo(-15, -7);
+      c.lineTo(10, -7);
+      c.stroke();
+    } else if (type === 'cheese') {
+      // Golden Emmental Cheese Wedge with Holes
+      c.beginPath();
+      c.moveTo(-24, 12);
+      c.lineTo(24, 12);
+      c.lineTo(20, -10);
+      c.quadraticCurveTo(0, -19, -24, 2);
+      c.closePath();
+
+      const cg = c.createLinearGradient(0, -16, 0, 14);
+      cg.addColorStop(0, '#FFE46B');
+      cg.addColorStop(0.6, '#FFC83B');
+      cg.addColorStop(1, '#F0A218');
+      c.fillStyle = cg;
+      c.fill();
+      c.strokeStyle = '#6E450B';
+      c.lineWidth = 2.8;
+      c.lineJoin = 'round';
+      c.stroke();
+
+      c.fillStyle = '#D98912';
+      for (const [hx, hy, hr] of [
+        [-8, 4, 4.2],
+        [7, 5, 3.4],
+        [4, -4, 2.8],
+      ]) {
+        c.beginPath();
+        c.arc(hx, hy, hr, 0, Math.PI * 2);
+        c.fill();
+      }
+    } else {
+      // Classic Plump Dog Bone with Savory Meat Wrap!
+      c.beginPath();
+      c.moveTo(-18, -6);
+      c.lineTo(18, -6);
+      c.bezierCurveTo(21, -15, 32, -13, 30, -3);
+      c.quadraticCurveTo(28, 0, 30, 3);
+      c.bezierCurveTo(32, 13, 21, 15, 18, 6);
+      c.lineTo(-18, 6);
+      c.bezierCurveTo(-21, 15, -32, 13, -30, 3);
+      c.quadraticCurveTo(-28, 0, -30, -3);
+      c.bezierCurveTo(-32, -13, -21, -15, -18, -6);
+      c.closePath();
+
+      const bg = c.createLinearGradient(0, -12, 0, 12);
+      bg.addColorStop(0, '#FFFFFF');
+      bg.addColorStop(0.65, '#FDF4E3');
+      bg.addColorStop(1, '#EAD7B7');
+      c.fillStyle = bg;
+      c.fill();
+      c.strokeStyle = '#523A28';
+      c.lineWidth = 2.8;
+      c.lineJoin = 'round';
+      c.stroke();
+
+      // Cute roasted meat band in center of bone
+      roundRectPath(c, -9, -7.2, 18, 14.4, 4);
+      c.fillStyle = '#EE7665';
+      c.fill();
+      c.strokeStyle = '#523A28';
+      c.lineWidth = 2.2;
+      c.stroke();
+    }
+
+    c.restore();
+  }
+
+  function drawStageTreats() {
+    for (const et of inputState.eatingTreats) {
+      const t = easeOutCubic(et.life / et.maxLife);
+      const x = lerp(et.startX, et.targetX, t);
+      const y = lerp(et.startY, et.targetY, t);
+      const s = (1 - t * 0.85) * 1.1;
+      drawVectorTreat(ctx, et.type, x, y, s, t * 0.8);
+    }
+
+    if (inputState.activeTreat) {
+      const wiggle = Math.sin(inputState.time * 8.5) * 0.14;
+      const pulse = 1.08 + Math.sin(inputState.time * 6) * 0.05;
+      drawVectorTreat(
+        ctx,
+        inputState.activeTreat.type,
+        inputState.pointerStageX,
+        inputState.pointerStageY,
+        pulse,
+        -0.22 + wiggle
+      );
+    }
+  }
+
+  function drawComboHudStage() {
+    if (inputState.comboBadgeAlpha <= 0.02 || inputState.displayCombo < 3) return;
+
+    const cVal = inputState.displayCombo;
+    const isOverdrive = cVal >= 60;
+    const isTurbo = cVal >= 30;
+    const isWarm = cVal >= 10;
+
+    const x = STAGE_W - 142;
+    const y = 52;
+    const popScale = 1 + inputState.comboPop * 0.16;
+
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(popScale, popScale);
+    ctx.globalAlpha = inputState.comboBadgeAlpha;
+
+    const w = isOverdrive ? 236 : isTurbo ? 214 : 184;
+    const h = 54;
+
+    // Outer glow
+    ctx.save();
+    const hue = (inputState.time * 260) % 360;
+    ctx.shadowColor = isOverdrive
+      ? `hsla(${hue}, 95%, 60%, 0.75)`
+      : isTurbo
+        ? 'rgba(255, 92, 56, 0.52)'
+        : 'rgba(255, 168, 46, 0.38)';
+    ctx.shadowBlur = isOverdrive ? 20 : 12;
+    roundRectPath(ctx, -w * 0.5, -h * 0.5, w, h, 27);
+
+    if (isOverdrive) {
+      const rg = ctx.createLinearGradient(-w * 0.5, -h * 0.5, w * 0.5, h * 0.5);
+      rg.addColorStop(0, `hsl(${hue}, 92%, 56%)`);
+      rg.addColorStop(0.5, `hsl(${(hue + 65) % 360}, 92%, 54%)`);
+      rg.addColorStop(1, `hsl(${(hue + 130) % 360}, 92%, 52%)`);
+      ctx.fillStyle = rg;
+    } else if (isTurbo) {
+      const tg = ctx.createLinearGradient(0, -h * 0.5, 0, h * 0.5);
+      tg.addColorStop(0, '#FF6E48');
+      tg.addColorStop(1, '#E63E26');
+      ctx.fillStyle = tg;
+    } else if (isWarm) {
+      const wg = ctx.createLinearGradient(0, -h * 0.5, 0, h * 0.5);
+      wg.addColorStop(0, '#FFA93A');
+      wg.addColorStop(1, '#F07C18');
+      ctx.fillStyle = wg;
+    } else {
+      ctx.fillStyle = isDarkTheme ? 'rgba(42, 52, 72, 0.92)' : 'rgba(255, 255, 255, 0.94)';
+    }
+    ctx.fill();
+    ctx.restore();
+
+    roundRectPath(ctx, -w * 0.5, -h * 0.5, w, h, 27);
+    ctx.strokeStyle = isWarm || isTurbo || isOverdrive ? 'rgba(255,255,255,0.88)' : 'rgba(245, 158, 11, 0.55)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    const textColor = isWarm || isTurbo || isOverdrive ? '#FFFFFF' : isDarkTheme ? '#F8FAFC' : '#2C3545';
+    const subText = isOverdrive
+      ? '🌈 OVERDRIVE 燃起来了!!'
+      : isTurbo
+        ? '🔥🔥 手速飞起 · 残影全开!'
+        : isWarm
+          ? '⚡ 专注加速中!'
+          : '连续敲键连击';
+
+    ctx.fillStyle = textColor;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = '900 18px -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif';
+    ctx.fillText(`${isOverdrive ? '🔥' : isTurbo ? '🔥' : '⚡'} ${cVal} COMBO`, 0, -7);
+
+    ctx.font = '700 11px -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif';
+    ctx.globalAlpha = inputState.comboBadgeAlpha * 0.94;
+    ctx.fillText(subText, 0, 12);
+
+    // Remaining combo window progress bar
+    const barW = w - 44;
+    const ratio = clamp(inputState.comboTimer / inputState.comboMaxWindow, 0, 1);
+    roundRectPath(ctx, -barW * 0.5, h * 0.5 - 6.5, barW * Math.max(0.05, ratio), 3.2, 1.6);
+    ctx.fillStyle = isWarm || isTurbo || isOverdrive ? 'rgba(255,255,255,0.88)' : '#F59E0B';
+    ctx.fill();
+
+    ctx.restore();
   }
 
   function drawEnlargedKeyPopups() {
@@ -3693,8 +4845,11 @@
     ctx.setTransform(viewport.dpr, 0, 0, viewport.dpr, 0, 0);
     drawBackdropFullViewport();
 
+    const shakeX = inputState.shakeAmp > 0.05 ? (Math.random() - 0.5) * 2 * inputState.shakeAmp : 0;
+    const shakeY = inputState.shakeAmp > 0.05 ? (Math.random() - 0.5) * 2 * inputState.shakeAmp : 0;
+
     ctx.save();
-    ctx.translate(viewport.offsetX, viewport.offsetY);
+    ctx.translate(viewport.offsetX + shakeX, viewport.offsetY + shakeY);
     ctx.scale(viewport.scale, viewport.scale);
 
     drawStageAmbientDecorations();
@@ -3706,7 +4861,9 @@
 
     drawTrioCaptions(placements);
     drawStageEffects();
+    drawStageTreats();
     drawEnlargedKeyPopups();
+    drawComboHudStage();
 
     ctx.restore();
   }

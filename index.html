@@ -7,7 +7,7 @@
   <style>
     :root {
       --bg-page: #f4f7fc;
-      --hud-bg: rgba(255, 255, 255, 0.84);
+      --hud-bg: rgba(255, 255, 255, 0.86);
       --hud-border: rgba(140, 168, 204, 0.28);
       --hud-shadow: 0 10px 30px rgba(48, 76, 118, 0.1);
       --text-main: #2c3545;
@@ -15,11 +15,14 @@
       --tab-active-bg: #3b82f6;
       --tab-active-text: #ffffff;
       --tab-hover-bg: rgba(59, 130, 246, 0.1);
+      --treat-hover-bg: rgba(245, 158, 11, 0.15);
+      --treat-active-bg: #f59e0b;
+      --treat-active-text: #ffffff;
     }
 
     body.theme-dark {
       --bg-page: #151922;
-      --hud-bg: rgba(28, 34, 46, 0.86);
+      --hud-bg: rgba(28, 34, 46, 0.88);
       --hud-border: rgba(255, 255, 255, 0.12);
       --hud-shadow: 0 12px 32px rgba(0, 0, 0, 0.38);
       --text-main: #eef2f8;
@@ -27,6 +30,9 @@
       --tab-active-bg: #60a5fa;
       --tab-active-text: #101826;
       --tab-hover-bg: rgba(96, 165, 250, 0.15);
+      --treat-hover-bg: rgba(251, 191, 36, 0.18);
+      --treat-active-bg: #fbbf24;
+      --treat-active-text: #1f1605;
     }
 
     * {
@@ -55,25 +61,26 @@
 
     .hud-top {
       position: fixed;
-      top: 14px;
+      top: 12px;
       left: 50%;
       transform: translateX(-50%);
       z-index: 10;
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 8px;
       flex-wrap: wrap;
       justify-content: center;
       width: max-content;
-      max-width: calc(100vw - 24px);
+      max-width: calc(100vw - 20px);
     }
 
     .char-switcher,
+    .treat-bar,
     .hud-actions {
       display: flex;
       align-items: center;
-      gap: 4px;
-      padding: 5px;
+      gap: 3px;
+      padding: 4px;
       border-radius: 999px;
       background: var(--hud-bg);
       border: 1px solid var(--hud-border);
@@ -82,22 +89,31 @@
       -webkit-backdrop-filter: blur(14px);
     }
 
+    .treat-label {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text-muted);
+      padding: 0 6px 0 9px;
+      white-space: nowrap;
+    }
+
     .char-tab,
+    .treat-btn,
     .hud-btn {
       appearance: none;
       border: none;
       background: transparent;
       color: var(--text-main);
       font: inherit;
-      font-size: 13.5px;
+      font-size: 13px;
       font-weight: 600;
-      padding: 7px 14px;
+      padding: 6px 12px;
       border-radius: 999px;
       cursor: pointer;
       display: inline-flex;
       align-items: center;
-      gap: 6px;
-      transition: background 0.18s ease, color 0.18s ease, transform 0.12s ease;
+      gap: 5px;
+      transition: background 0.18s ease, color 0.18s ease, transform 0.12s ease, box-shadow 0.18s ease;
       white-space: nowrap;
     }
 
@@ -106,15 +122,31 @@
       background: var(--tab-hover-bg);
     }
 
+    .treat-btn {
+      cursor: grab;
+    }
+
+    .treat-btn:hover {
+      background: var(--treat-hover-bg);
+      transform: translateY(-1px);
+    }
+
     .char-tab:active,
+    .treat-btn:active,
     .hud-btn:active {
-      transform: scale(0.96);
+      transform: scale(0.95);
     }
 
     .char-tab.is-active {
       background: var(--tab-active-bg);
       color: var(--tab-active-text);
       box-shadow: 0 3px 10px rgba(59, 130, 246, 0.28);
+    }
+
+    .treat-btn.is-active {
+      background: var(--treat-active-bg);
+      color: var(--treat-active-text);
+      box-shadow: 0 3px 12px rgba(245, 158, 11, 0.36);
     }
 
     .hud-bottom {
@@ -151,10 +183,13 @@
       background: var(--hud-border);
     }
 
-    @media (max-width: 720px) {
-      .char-tab, .hud-btn {
+    @media (max-width: 860px) {
+      .char-tab, .treat-btn, .hud-btn {
         font-size: 12px;
-        padding: 6px 10px;
+        padding: 5px 9px;
+      }
+      .treat-label {
+        display: none;
       }
       .hud-bottom {
         font-size: 12px;
@@ -180,8 +215,24 @@
       </button>
     </nav>
 
+    <div class="treat-bar" aria-label="投喂零食罐">
+      <span class="treat-label">投喂</span>
+      <button type="button" class="treat-btn" data-treat="bone" title="拖拽或点击拿起香脆骨头喂给小狗">
+        <span>🦴</span><span>骨头</span>
+      </button>
+      <button type="button" class="treat-btn" data-treat="jerky" title="拖拽或点击拿起炭烤肉干喂给小狗">
+        <span>🥩</span><span>肉干</span>
+      </button>
+      <button type="button" class="treat-btn" data-treat="cheese" title="拖拽或点击拿起芝士球喂给小狗">
+        <span>🧀</span><span>芝士</span>
+      </button>
+    </div>
+
     <div class="hud-actions">
-      <button type="button" class="hud-btn" id="soundToggle" aria-pressed="false" title="开启或关闭敲键/点击音效">
+      <button type="button" class="hud-btn" id="napBtn" title="让小狗打哈欠犯困吹鼻涕泡（静置15秒也会自动打瞌睡，敲键/点击即可戳醒！）">
+        <span>💤</span><span>犯困</span>
+      </button>
+      <button type="button" class="hud-btn" id="soundToggle" aria-pressed="false" title="开启或关闭敲键/投喂/气泡音效">
         <span id="soundIcon">🔇</span><span id="soundLabel">音效关</span>
       </button>
       <button type="button" class="hud-btn" id="themeToggle" aria-pressed="false" title="切换浅色/深色背景">
@@ -196,7 +247,7 @@
   <canvas id="petCanvas"></canvas>
 
   <footer class="hud-bottom">
-    <span id="statusHint">眼神实时跟随鼠标 · 鼠标移到小狗头上摸摸头解锁笑柴表情 💕</span>
+    <span id="statusHint">拖零食投喂 🦴 · 摸摸头变笑柴 💕 · 连续敲键触发狂暴连击 🔥 · 静置自动打瞌睡 💤</span>
     <span class="divider"></span>
     <span>互动计数 <strong id="actionCount">0</strong></span>
   </footer>
