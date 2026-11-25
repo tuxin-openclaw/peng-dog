@@ -72,20 +72,20 @@
         wagLines: true,
       },
       torso: {
-        grad: ['#FBE69B', '#F7DC80', '#EBC362'],
-        hindThigh: '#EBC462',
-        hindPaw: ['#F7DC82'],
+        grad: ['#FCE596', '#F6D572', '#E8BB55'],
+        hindThigh: '#E8BC56',
+        hindPaw: ['#FCE9A6', '#FFF8DC', '#FFFDF2'],
         bellyType: 'oval',
-        bellyGrad: ['#F8B4C8', '#F29AB4'],
-        bellyRx: 36,
-        bellyRy: 52,
-        strokeBelly: true,
+        bellyGrad: ['#FFFDF2', '#FFF7DA', '#F6E19C'],
+        bellyRx: 42,
+        bellyRy: 56,
+        strokeBelly: false,
       },
       limb: {
         style: 'solid',
-        armGrad: ['#F8DE84', '#FCE596', '#F6D878'],
-        shoulderCap: '#F8DE84',
-        pawGrad: ['#FFF1B8', '#F9DF86', '#ECC564'],
+        armGrad: ['#F7D878', '#FCE69C', '#FFF7D6'],
+        shoulderCap: '#F7D878',
+        pawGrad: ['#FFFDF2', '#FFF6D2', '#F2D378'],
         toeStroke: '#181411',
         beanColor: '255, 148, 164',
       },
@@ -94,14 +94,16 @@
         grad: ['#F8B2C6', '#F398B2', '#E67F9D'],
       },
       head: {
-        shape: 'plump',
-        crownFluff: true,
-        crownFill: '#FBE69A',
-        grad: ['#FDF0B4', '#F9DF85', '#ECC666'],
+        shape: 'fluffy-cheek',
+        crownFluff: false,
+        grad: ['#FCE38A', '#F5CF6B', '#E5B64E'],
         earType: 'floppy',
+        earOffsetY: -53,
         earGrad: ['#F9DF86', '#F6CE72', '#ED9F4E', '#E28B38'],
-        maskType: 'muzzle-oval',
-        muzzleFill: '#FFF3BF',
+        maskType: 'shiba-cheek-mask',
+        maskCheekPatch: '#EEA94E',
+        maskLowerGrad: ['#FFFDF4', '#FFF8E0', '#F5E6BE'],
+        maskChinShadow: 'rgba(214, 178, 112, 0.36)',
         browDots: null,
       },
       face: {
@@ -250,7 +252,10 @@
         earWhiteRim: false,
         earInner: ['#EAC0A8', '#D89F84'],
         earTuftStyle: 'dark-spikes',
-        maskType: 'black-tan-shiba',
+        maskType: 'shiba-cheek-mask',
+        maskCheekPatch: '#E6A56A',
+        maskLowerGrad: ['#FDF6EA', '#FAF0E1', '#EFE2CE'],
+        maskChinShadow: 'rgba(206, 186, 166, 0.45)',
         browDots: { color: '#EEB67E', x: 28, y: -28, rx: 11.5, ry: 7.2, tilt: 0.28 },
       },
       face: {
@@ -3023,7 +3028,7 @@
   function drawSharedFloppyEar(c, def, side, kick) {
     const hSpec = def.head;
     c.save();
-    c.translate(side * 96, -38);
+    c.translate(side * 96, hSpec.earOffsetY ?? -38);
     c.rotate(side * (0.1 + kick * 0.12));
 
     const earPath = () => {
@@ -3839,35 +3844,36 @@
       c.arc(mx * 0.5, -10 + my * 0.5, 74, -Math.PI * 0.66, -Math.PI * 0.34);
       c.stroke();
       c.restore();
-    } else if (hSpec.maskType === 'black-tan-shiba') {
+    } else if (hSpec.maskType === 'shiba-cheek-mask') {
       c.save();
       defineSharedHeadSilhouette(c, hSpec.shape);
       c.clip();
 
-      c.fillStyle = '#E6A56A';
+      c.fillStyle = hSpec.maskCheekPatch || '#E6A56A';
       c.beginPath();
       c.ellipse(-58 + mx, 12 + my, 34, 18, -0.22, 0, Math.PI * 2);
       c.ellipse(58 + mx, 12 + my, 34, 18, 0.22, 0, Math.PI * 2);
       c.fill();
 
       c.beginPath();
-      c.moveTo(-114, 20 + my * 0.6);
+      c.moveTo(-118, 20 + my * 0.6);
       c.bezierCurveTo(-76 + mx, 6 + my, -48 + mx, 14 + my, -26 + mx, 16 + my);
       c.bezierCurveTo(-14 + mx, 16 + my, -10 + mx, 0 + my, mx, 0 + my);
       c.bezierCurveTo(10 + mx, 0 + my, 14 + mx, 16 + my, 26 + mx, 16 + my);
-      c.bezierCurveTo(48 + mx, 14 + my, 76 + mx, 6 + my, 114, 20 + my * 0.6);
-      c.lineTo(120, 100);
-      c.lineTo(-120, 100);
+      c.bezierCurveTo(48 + mx, 14 + my, 76 + mx, 6 + my, 118, 20 + my * 0.6);
+      c.lineTo(122, 100);
+      c.lineTo(-122, 100);
       c.closePath();
 
+      const lowerCols = hSpec.maskLowerGrad || ['#FDF6EA', '#FAF0E1', '#EFE2CE'];
       const cg = c.createLinearGradient(0, my, 0, 88);
-      cg.addColorStop(0, '#FDF6EA');
-      cg.addColorStop(0.75, '#FAF0E1');
-      cg.addColorStop(1, '#EFE2CE');
+      cg.addColorStop(0, lowerCols[0]);
+      cg.addColorStop(0.75, lowerCols[1]);
+      cg.addColorStop(1, lowerCols[2]);
       c.fillStyle = cg;
       c.fill();
 
-      c.fillStyle = 'rgba(206, 186, 166, 0.45)';
+      c.fillStyle = hSpec.maskChinShadow || 'rgba(206, 186, 166, 0.45)';
       c.beginPath();
       c.ellipse(mx * 0.6, 76 + my * 0.4, 36, 12, 0, 0, Math.PI * 2);
       c.fill();
