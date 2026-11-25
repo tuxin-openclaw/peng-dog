@@ -209,11 +209,13 @@
   const INIT_MOUSE_LX = -124;
   const INIT_MOUSE_LY = 54;
 
-  // Squatting front-paw home coordinates (exact match to resting front paws!)
+  // Squatting front-paw home coordinates (exact resting paw center under fixed shoulder pivot!)
+  const SHOULDER_OFFSET_X = 37;
+  const SHOULDER_Y = -94;
   const LEFT_SQUAT_HOME_X = DOG_X - 35;
-  const LEFT_SQUAT_HOME_Y = -6;
+  const LEFT_SQUAT_HOME_Y = -8;
   const RIGHT_SQUAT_HOME_X = DOG_X + 35;
-  const RIGHT_SQUAT_HOME_Y = -6;
+  const RIGHT_SQUAT_HOME_Y = -8;
 
   const isMac = /Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent);
 
@@ -1196,17 +1198,20 @@
       lp.x = lerp(lp.x, lp.targetX, pawFollow);
       lp.y = lerp(lp.y, lp.targetY, pawFollow);
 
-      if (lp.mode === 'squat' && lpDist < 2.2) {
+      const lpDistFromHome = Math.hypot(lp.x - leftHomeX, lp.y - leftHomeY);
+      if (lp.mode === 'squat' && lpDist < 0.6) {
         lp.x = leftHomeX;
         lp.y = leftHomeY;
         lp.isExtended = false;
+      } else if (lpDistFromHome > 0.8) {
+        lp.isExtended = true;
       }
 
       const lpClicking =
         lp.mode === 'mouse'
           ? anyMouseHeld
           : lp.mode === 'keyboard' && lp.activeKeyCode !== null && lpDist < 16;
-      lp.lift = lerp(lp.lift, lp.isExtended ? clamp(lpDist / 65, 0, 0.85) : 0, 1 - Math.exp(-dt * 22));
+      lp.lift = lerp(lp.lift, clamp(lpDist / 58, 0, 0.85), 1 - Math.exp(-dt * 22));
       lp.press = lerp(lp.press, lpClicking ? 1 : 0, 1 - Math.exp(-dt * 28));
 
       // ---- RIGHT PAW STATE MACHINE ('squat' <-> 'keyboard') ----
@@ -1228,13 +1233,16 @@
       rp.y = lerp(rp.y, rp.targetY, pawFollow);
       rp.ghostAlpha = Math.max(0, rp.ghostAlpha - dt * 3.8);
 
-      if (rp.mode === 'squat' && rpDist < 2.2) {
+      const rpDistFromHome = Math.hypot(rp.x - rightHomeX, rp.y - rightHomeY);
+      if (rp.mode === 'squat' && rpDist < 0.6) {
         rp.x = rightHomeX;
         rp.y = rightHomeY;
         rp.isExtended = false;
+      } else if (rpDistFromHome > 0.8) {
+        rp.isExtended = true;
       }
 
-      rp.lift = lerp(rp.lift, rp.isExtended ? clamp(rpDist / 60, 0, 0.85) : 0, 1 - Math.exp(-dt * 24));
+      rp.lift = lerp(rp.lift, clamp(rpDist / 55, 0, 0.85), 1 - Math.exp(-dt * 24));
       rp.press = lerp(rp.press, rightKeyWanted && rpDist < 16 ? 1 : 0, 1 - Math.exp(-dt * 30));
     }
 
@@ -1818,10 +1826,11 @@
     c.lineJoin = 'round';
     c.stroke();
     c.restore();
+  }
 
-    // Resting Squatting Front Legs (drawn ONLY for paws NOT currently reaching out!)
-    if (!st.leftPaw.isExtended) drawRestingSquatFrontLeg(c, 'sunny', bodyX, -1, breath);
-    if (!st.rightPaw.isExtended) drawRestingSquatFrontLeg(c, 'sunny', bodyX, 1, breath);
+  function drawSunnyCollarAndHead(c, st, bodyX, breath) {
+    const ink = '#181411';
+    const lineW = 3.8;
 
     drawSunnyCollar(c, bodyX, breath);
 
@@ -2298,10 +2307,11 @@
     c.lineWidth = lineW;
     c.stroke();
     c.restore();
+  }
 
-    // Resting Squatting Front Legs (drawn ONLY for paws NOT currently reaching out!)
-    if (!st.leftPaw.isExtended) drawRestingSquatFrontLeg(c, 'daisy', bodyX, -1, breath);
-    if (!st.rightPaw.isExtended) drawRestingSquatFrontLeg(c, 'daisy', bodyX, 1, breath);
+  function drawDaisyBandanaAndHead(c, st, bodyX, breath) {
+    const outline = '#7A5134';
+    const lineW = 2.8;
 
     drawDaisyBandana(c, st, bodyX, breath);
 
@@ -2715,15 +2725,36 @@
     c.lineWidth = lineW;
     c.stroke();
     c.restore();
+  }
 
-    // Resting Squatting Front Legs (drawn ONLY for paws NOT currently reaching out!)
-    if (!st.leftPaw.isExtended) drawRestingSquatFrontLeg(c, 'kuro', bodyX, -1, breath);
-    if (!st.rightPaw.isExtended) drawRestingSquatFrontLeg(c, 'kuro', bodyX, 1, breath);
+  function drawKuroRuffAndHead(c, st, bodyX, breath) {
+    const ink = '#0B0C0E';
+    const lineW = 3.2;
 
-    // Fluffy Black Neck Ruff + Prominent White Winged V-Chest Patch
+    // Fluffy Black Neck Ruff + Wide Fluffy White Winged V-Chest Tuft (overlapping upper shoulder roots naturally!)
     const ruffY = -124 + breath * 0.55;
     c.save();
     c.translate(bodyX, 0);
+
+    const vY = ruffY + 21;
+    c.fillStyle = '#FCF3E6';
+    c.beginPath();
+    c.moveTo(0, vY + 2);
+    c.quadraticCurveTo(22, vY - 3, 44, vY + 2);
+    c.lineTo(37, vY + 10);
+    c.lineTo(42, vY + 15);
+    c.lineTo(25, vY + 21);
+    c.lineTo(13, vY + 25);
+    c.lineTo(0, vY + 36);
+    c.lineTo(-13, vY + 25);
+    c.lineTo(-25, vY + 21);
+    c.lineTo(-42, vY + 15);
+    c.lineTo(-37, vY + 10);
+    c.lineTo(-44, vY + 2);
+    c.quadraticCurveTo(-22, vY - 3, 0, vY + 2);
+    c.closePath();
+    c.fill();
+
     c.beginPath();
     c.moveTo(-54, ruffY - 2);
     c.lineTo(-58, ruffY + 8);
@@ -2742,25 +2773,6 @@
     c.lineTo(54, ruffY - 2);
     c.closePath();
     c.fillStyle = '#191B20';
-    c.fill();
-
-    const vY = ruffY + 22;
-    c.fillStyle = '#FCF3E6';
-    c.beginPath();
-    c.moveTo(0, vY + 3);
-    c.quadraticCurveTo(22, vY - 3, 44, vY + 2);
-    c.lineTo(37, vY + 11);
-    c.lineTo(42, vY + 16);
-    c.lineTo(26, vY + 22);
-    c.lineTo(14, vY + 26);
-    c.lineTo(0, vY + 38);
-    c.lineTo(-14, vY + 26);
-    c.lineTo(-26, vY + 22);
-    c.lineTo(-42, vY + 16);
-    c.lineTo(-37, vY + 11);
-    c.lineTo(-44, vY + 2);
-    c.quadraticCurveTo(-22, vY - 3, 0, vY + 3);
-    c.closePath();
     c.fill();
     c.restore();
 
@@ -3219,75 +3231,105 @@
   }
 
   // =========================================================================
-  // Active Reaching Front Arm & Paw (Drawn ONLY When Actively Tapping/Moving!)
+  // Unified Fixed-Shoulder Front Limb (Continuous 0..1 Squat <-> Reach Rig!)
   // =========================================================================
-  function drawReachingArmAndPaw(c, dogId, { sx, sy, px, py, side, press, lift }) {
+  function drawUnifiedFrontLimb(c, dogId, { sx, sy, homeX, homeY, px, py, side, press, lift }) {
+    const distFromHome = Math.hypot(px - homeX, py - homeY);
+    const reachT = easeOutCubic(clamp(distFromHome / 44, 0, 1));
+
+    const pyVis = py - lift * 15;
     const dx = px - sx;
-    const dy = py - sy;
+    const dy = pyVis - sy;
     const len = Math.max(1, Math.hypot(dx, dy));
-    const bend = side * Math.min(24, len * 0.22);
-    const cx = (sx + px) * 0.5 + bend;
-    const cy = (sy + py) * 0.5 + 4;
+
+    // Upward-arching elbow (never sags downward!)
+    const bendX = side * lerp(2.5, Math.min(20, len * 0.16), reachT);
+    const bendY = lerp(0, -10, reachT) - lift * 9;
+    const cx = (sx + px) * 0.5 + bendX;
+    const cy = (sy + pyVis) * 0.5 + bendY;
 
     const endDx = px - cx;
-    const endDy = py - cy;
-    const angle = Math.atan2(endDy, endDx);
+    const endDy = pyVis - cy;
+    const armEndAngle = Math.atan2(endDy, endDx);
+    // Smoothly blend paw angle from 0 (flat ground squat) toward arm direction when reaching
+    let targetPawRot = armEndAngle - Math.PI * 0.5;
+    while (targetPawRot > Math.PI) targetPawRot -= Math.PI * 2;
+    while (targetPawRot < -Math.PI) targetPawRot += Math.PI * 2;
+    const pawRot = targetPawRot * (reachT * 0.65);
+
     const squashX = 1 + press * 0.1 - lift * 0.04;
     const squashY = 1 - press * 0.08 + lift * 0.07;
 
     const outline = dogId === 'sunny' ? '#181411' : dogId === 'daisy' ? '#7A5134' : '#0B0C0E';
-    const outlineW = dogId === 'sunny' ? 3.5 : dogId === 'daisy' ? 2.7 : 3.0;
+    const outlineW = dogId === 'sunny' ? 3.6 : dogId === 'daisy' ? 2.8 : 3.1;
+
+    const rShoulder = 21.5;
+    const rMid = lerp(20.2, 17.6, reachT);
+    const rWrist = lerp(18.5, 15.4, reachT);
+    const pawRX = lerp(22.2, 18.2, reachT);
+    const pawRY = lerp(12.2, 15.2, reachT);
 
     c.save();
 
-    c.fillStyle = 'rgba(0, 0, 0, 0.16)';
-    c.beginPath();
-    c.ellipse(px, py + 5 + lift * 8, 19 * (1 - lift * 0.2), 12 * (1 - lift * 0.2), 0, 0, Math.PI * 2);
-    c.fill();
+    // Contact shadow under paw when reaching over keyboard / mouse
+    if (reachT > 0.08) {
+      c.fillStyle = `rgba(0, 0, 0, ${(0.16 * reachT).toFixed(3)})`;
+      c.beginPath();
+      c.ellipse(
+        px,
+        pyVis + 5 + lift * 8,
+        19 * (1 - lift * 0.2),
+        11.5 * (1 - lift * 0.2),
+        0,
+        0,
+        Math.PI * 2
+      );
+      c.fill();
+    }
 
     const sAngle = Math.atan2(cy - sy, cx - sx);
     const snx = -Math.sin(sAngle);
     const sny = Math.cos(sAngle);
-    const enx = -Math.sin(angle);
-    const eny = Math.cos(angle);
+    const enx = -Math.sin(armEndAngle);
+    const eny = Math.cos(armEndAngle);
     const mnx = (snx + enx) * 0.5;
     const mny = (sny + eny) * 0.5;
     const mLen = Math.hypot(mnx, mny) || 1;
     const mnux = mnx / mLen;
     const mnuy = mny / mLen;
 
-    const rShoulder = 21.5;
-    const rMid = 18.2;
-    const rWrist = 15.6;
-
     const sLx = sx + snx * rShoulder, sLy = sy + sny * rShoulder;
     const sRx = sx - snx * rShoulder, sRy = sy - sny * rShoulder;
     const mLx = cx + mnux * rMid,     mLy = cy + mnuy * rMid;
     const mRx = cx - mnux * rMid,     mRy = cy - mnuy * rMid;
-    const wLx = px + enx * rWrist,    wLy = py + eny * rWrist;
-    const wRx = px - enx * rWrist,    wRy = py - eny * rWrist;
+    const wLx = px + enx * rWrist,    wLy = pyVis + eny * rWrist;
+    const wRx = px - enx * rWrist,    wRy = pyVis - eny * rWrist;
 
+    // 1. Unified outer contour pass (paw outer border + arm side strokes)
     c.save();
-    c.translate(px, py);
-    c.rotate(angle - Math.PI * 0.5);
+    c.translate(px, pyVis);
+    c.rotate(pawRot);
     c.scale(squashX, squashY);
     c.beginPath();
-    c.ellipse(0, 3, 20.6, 18.0, 0, 0, Math.PI * 2);
+    c.ellipse(0, 2, pawRX + outlineW, pawRY + outlineW, 0, 0, Math.PI * 2);
     c.fillStyle = outline;
     c.fill();
     c.restore();
 
+    // Determine which side of the limb is outer vs inner chest
+    // For downward limb (sAngle ~ PI/2), snx ~ -1 (left), -snx ~ +1 (right)
     c.strokeStyle = outline;
     c.lineWidth = outlineW * 2;
     c.lineCap = 'round';
     c.beginPath();
-    c.moveTo(sLx, sLy);
+    c.moveTo(sLx, sLy + (side === 1 ? (1 - reachT) * 14 : 0));
     c.quadraticCurveTo(mLx, mLy, wLx, wLy);
-    c.moveTo(sRx, sRy);
+    c.moveTo(sRx, sRy + (side === -1 ? (1 - reachT) * 14 : 0));
     c.quadraticCurveTo(mRx, mRy, wRx, wRy);
     c.stroke();
 
-    const armPath = () => {
+    // 2. Seamless limb body fill
+    const defineArmTube = () => {
       c.beginPath();
       c.moveTo(sLx, sLy);
       c.quadraticCurveTo(mLx, mLy, wLx, wLy);
@@ -3296,77 +3338,116 @@
       c.closePath();
     };
 
-    const ag = c.createLinearGradient(sx, sy, px, py);
-    if (dogId === 'sunny') {
-      ag.addColorStop(0, '#F7DC80');
-      ag.addColorStop(1, '#FCE698');
-    } else if (dogId === 'daisy') {
-      ag.addColorStop(0, '#EE9C4B');
-      ag.addColorStop(0.58, '#F7BF72');
-      ag.addColorStop(1, '#FFFDF8');
+    if (dogId === 'kuro') {
+      // Tri-color Black -> Fuzzy Zigzag -> Warm Tan stocking along the limb!
+      c.save();
+      defineArmTube();
+      c.clip();
+
+      const kg = c.createLinearGradient(sx, sy, px, pyVis);
+      kg.addColorStop(0, '#191B20');
+      kg.addColorStop(0.46, '#191B20');
+      kg.addColorStop(0.54, '#E8A86E');
+      kg.addColorStop(1, '#EAB07A');
+      c.fillStyle = kg;
+      c.fill();
+
+      // Crisp fur zigzag tufts at mid-arm transition
+      const midX = (sx + px) * 0.5 + bendX * 0.6;
+      const midY = (sy + pyVis) * 0.5 + bendY * 0.6;
+      c.save();
+      c.translate(midX, midY);
+      c.rotate(armEndAngle - Math.PI * 0.5);
+      c.fillStyle = '#191B20';
+      c.beginPath();
+      c.moveTo(-24, -10);
+      c.lineTo(-14, 4);
+      c.lineTo(-5, -4);
+      c.lineTo(5, 5);
+      c.lineTo(14, -3);
+      c.lineTo(24, 4);
+      c.lineTo(24, -22);
+      c.lineTo(-24, -22);
+      c.closePath();
+      c.fill();
+      c.restore();
+
+      c.restore();
     } else {
-      ag.addColorStop(0, '#191B20');
-      ag.addColorStop(0.48, '#191B20');
-      ag.addColorStop(0.55, '#E8A86E');
-      ag.addColorStop(1, '#EAB07A');
+      const ag = c.createLinearGradient(sx, sy, px, pyVis);
+      if (dogId === 'sunny') {
+        ag.addColorStop(0, '#F8DE84');
+        ag.addColorStop(0.75, '#FCE596');
+        ag.addColorStop(1, '#F6D878');
+      } else {
+        ag.addColorStop(0, '#EE9C4B');
+        ag.addColorStop(0.42, '#F7BE72');
+        ag.addColorStop(0.68, '#FFFBF4');
+        ag.addColorStop(1, '#FFFDF9');
+      }
+      defineArmTube();
+      c.fillStyle = ag;
+      c.fill();
     }
-    armPath();
-    c.fillStyle = ag;
-    c.fill();
 
-    // Seamless plush shoulder cap blending into outer torso shoulder
-    c.fillStyle = dogId === 'sunny' ? '#F7DC80' : dogId === 'daisy' ? '#EE9C4B' : '#191B20';
+    // Smooth upper-shoulder blend cap (tucked cleanly beneath collar/bandana!)
+    c.fillStyle = dogId === 'sunny' ? '#F8DE84' : dogId === 'daisy' ? '#EE9C4B' : '#191B20';
     c.beginPath();
-    c.ellipse(sx, sy - 4, 21.5, 17, side * 0.2, 0, Math.PI * 2);
+    c.ellipse(sx + side * 2, sy, rShoulder + 1, 16, 0, 0, Math.PI * 2);
     c.fill();
 
+    // 3. Plump Puppy Paw + 3 Toe Creases (+ Paw Beans when lifted high!)
     c.save();
-    c.translate(px, py);
-    c.rotate(angle - Math.PI * 0.5);
+    c.translate(px, pyVis);
+    c.rotate(pawRot);
     c.scale(squashX, squashY);
 
     c.beginPath();
-    c.ellipse(0, 3, 17.8, 15.2, 0, 0, Math.PI * 2);
+    c.ellipse(0, 2, pawRX, pawRY, 0, 0, Math.PI * 2);
     if (dogId === 'sunny') {
-      const pg = c.createRadialGradient(-3, -2, 2, 0, 3, 17);
+      const pg = c.createRadialGradient(-3, -2, 2, 0, 2, pawRX);
       pg.addColorStop(0, '#FFF1B8');
       pg.addColorStop(0.75, '#F9DF86');
       pg.addColorStop(1, '#ECC564');
       c.fillStyle = pg;
     } else {
-      const pg = c.createRadialGradient(-3, -2, 2, 0, 3, 17);
+      const pg = c.createRadialGradient(-3, -2, 2, 0, 2, pawRX);
       pg.addColorStop(0, '#FFFFFF');
-      pg.addColorStop(0.75, '#FFFDF8');
+      pg.addColorStop(0.8, '#FFFDF9');
       pg.addColorStop(1, '#EFE4D6');
       c.fillStyle = pg;
     }
     c.fill();
 
-    c.strokeStyle = outline;
-    c.lineWidth = 2.0;
+    const toeStroke = dogId === 'daisy' ? '#8C684C' : outline;
+    c.strokeStyle = toeStroke;
+    c.lineWidth = lerp(2.5, 2.0, reachT);
     c.lineCap = 'round';
+    const toeSpread = lerp(9.2, 5.6, reachT);
+    const toeTopY = lerp(1.5, 8.2, reachT);
+    const toeBotY = pawRY + 1.4;
     c.beginPath();
-    c.moveTo(-5.2, 9.6);
-    c.lineTo(-5.6, 15.0);
-    c.moveTo(0, 10.2);
-    c.lineTo(0, 15.8);
-    c.moveTo(5.2, 9.6);
-    c.lineTo(5.6, 15.0);
+    c.moveTo(-toeSpread, toeTopY);
+    c.lineTo(-toeSpread * 1.04, toeBotY);
+    c.moveTo(0, toeTopY + 0.5);
+    c.lineTo(0, toeBotY + 0.5);
+    c.moveTo(toeSpread, toeTopY);
+    c.lineTo(toeSpread * 1.04, toeBotY);
     c.stroke();
 
-    if (lift > 0.24) {
-      const ba = clamp((lift - 0.24) * 1.65, 0, 0.88);
+    if (lift > 0.28 && reachT > 0.25) {
+      const ba = clamp((lift - 0.28) * 1.6, 0, 0.85) * reachT;
       c.fillStyle =
         dogId === 'kuro'
           ? `rgba(68, 52, 48, ${ba.toFixed(3)})`
           : `rgba(255, 148, 164, ${ba.toFixed(3)})`;
       c.beginPath();
-      c.ellipse(0, 5.8, 4.8, 3.4, 0, 0, Math.PI * 2);
+      c.ellipse(0, 4.8, 4.6, 3.2, 0, 0, Math.PI * 2);
       c.fill();
       c.beginPath();
-      c.arc(-5.8, 11.4, 2.1, 0, Math.PI * 2);
-      c.arc(0, 12.6, 2.3, 0, Math.PI * 2);
-      c.arc(5.8, 11.4, 2.1, 0, Math.PI * 2);
+      c.arc(-5.6, 10.2, 2.0, 0, Math.PI * 2);
+      c.arc(0, 11.4, 2.2, 0, Math.PI * 2);
+      c.arc(5.6, 10.2, 2.0, 0, Math.PI * 2);
       c.fill();
     }
 
@@ -3384,7 +3465,7 @@
     c.translate(cx, baseY);
     c.scale(scale, scale);
 
-    // 1. Puppy Squatting Ground Shadow (right beneath puppy's resting paws!)
+    // 1. Puppy Squatting Ground Shadow
     if (!isExport) {
       c.fillStyle =
         dog.id === 'daisy' && !isDarkTheme
@@ -3409,7 +3490,7 @@
       }
     }
 
-    // 2. Complete Unobstructed Squatting Puppy (with resting front legs when idle!)
+    // 2. Squatting Torso, Hind Legs & Tail
     if (dog.id === 'sunny') {
       drawSunnySquatPuppy(c, st, bodyX, breath);
     } else if (dog.id === 'daisy') {
@@ -3418,47 +3499,54 @@
       drawKuroSquatPuppy(c, st, bodyX, breath);
     }
 
-    // 3. Keyboard & Mouse placed cleanly IN FRONT OF (below) puppy — ZERO overlap!
+    // 3. Keyboard & Mouse placed cleanly IN FRONT OF puppy (drawn before front limbs so paws reach OVER keys!)
     drawPuppyKeyboard(c, dog.id);
     drawPuppyMouseAndPad(c, dog.id);
 
-    // 4. On-Demand Reaching Front Paws (ONLY rendered when actively tapping key or moving/clicking mouse!)
+    // 4. Unified Fixed-Shoulder Front Limbs (Shoulder pivot stays locked at y = -94 under collar/bandana!)
+    const shoulderY = SHOULDER_Y + breath * 0.45;
     const lp = st.leftPaw;
-    if (lp.isExtended) {
-      const lpLiftPx = lp.lift * 15;
-      drawReachingArmAndPaw(c, dog.id, {
-        sx: bodyX - 46,
-        sy: -54 + breath * 0.4,
-        px: lp.x,
-        py: lp.y - lpLiftPx,
-        side: -1,
-        press: lp.press,
-        lift: lp.lift,
-      });
-    }
+    drawUnifiedFrontLimb(c, dog.id, {
+      sx: bodyX - SHOULDER_OFFSET_X,
+      sy: shoulderY,
+      homeX: bodyX - 35,
+      homeY: LEFT_SQUAT_HOME_Y,
+      px: lp.x,
+      py: lp.y,
+      side: -1,
+      press: lp.press,
+      lift: lp.lift,
+    });
 
     const rp = st.rightPaw;
-    if (rp.isExtended) {
-      const rpLiftPx = rp.lift * 15;
-      if (rp.ghostAlpha > 0.03) {
-        c.save();
-        c.globalAlpha = rp.ghostAlpha * 0.4;
-        c.fillStyle = dog.id === 'sunny' ? '#FCE698' : '#FFFDF8';
-        c.beginPath();
-        c.ellipse(rp.prevX, rp.prevY - 6, 14, 12, 0, 0, Math.PI * 2);
-        c.fill();
-        c.restore();
-      }
+    if (rp.ghostAlpha > 0.03 && rp.isExtended) {
+      c.save();
+      c.globalAlpha = rp.ghostAlpha * 0.36;
+      c.fillStyle = dog.id === 'sunny' ? '#FCE698' : '#FFFDF8';
+      c.beginPath();
+      c.ellipse(rp.prevX, rp.prevY - 6, 14, 12, 0, 0, Math.PI * 2);
+      c.fill();
+      c.restore();
+    }
+    drawUnifiedFrontLimb(c, dog.id, {
+      sx: bodyX + SHOULDER_OFFSET_X,
+      sy: shoulderY,
+      homeX: bodyX + 35,
+      homeY: RIGHT_SQUAT_HOME_Y,
+      px: rp.x,
+      py: rp.y,
+      side: 1,
+      press: rp.press,
+      lift: rp.lift,
+    });
 
-      drawReachingArmAndPaw(c, dog.id, {
-        sx: bodyX + 46,
-        sy: -54 + breath * 0.4,
-        px: rp.x,
-        py: rp.y - rpLiftPx,
-        side: 1,
-        press: rp.press,
-        lift: rp.lift,
-      });
+    // 5. Collar / Floral Bandana / Neck Ruff + Head (naturally overlapping the top of the shoulder joints!)
+    if (dog.id === 'sunny') {
+      drawSunnyCollarAndHead(c, st, bodyX, breath);
+    } else if (dog.id === 'daisy') {
+      drawDaisyBandanaAndHead(c, st, bodyX, breath);
+    } else {
+      drawKuroRuffAndHead(c, st, bodyX, breath);
     }
 
     c.restore();
