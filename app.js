@@ -20,7 +20,6 @@
   const STAGE_W = 1320;
   const STAGE_H = 700;
 
-  // 'all' | 'sunny' (图1 墨镜金毛) | 'daisy' (图2 蓝巾笑柴) | 'kuro' (图3 歪头黑柴)
   let currentView = 'all';
   let isDarkTheme = false;
 
@@ -52,11 +51,234 @@
     viewport.offsetY = padTop + (availH - STAGE_H * viewport.scale) * 0.5;
   }
 
-  window.addEventListener('resize', () => {
-    resizeCanvas();
-    drawScene();
-  });
-  resizeCanvas();
+  // =========================================================================
+  // Declarative Character Registry (Add New Characters Here With Zero Boilerplate!)
+  // =========================================================================
+  const CHARACTER_DEFS = [
+    {
+      id: 'sunny',
+      name: '墨镜金毛',
+      baseTilt: -0.032,
+      phaseOffset: 0.0,
+      outline: '#181411',
+      outlineW: 3.6,
+      backdrop: { c0: '#FFFEFA', c1: '#FFF7E4', c2: '#F8E9C8', crayon: false },
+      groundShadow: { light: 'rgba(92, 74, 56, 0.14)', sketchLines: false },
+      tail: {
+        type: 'feathered',
+        colors: ['#ECC564', '#F9DF86', '#FCEAA4'],
+        wagLines: true,
+      },
+      torso: {
+        grad: ['#FBE69B', '#F7DC80', '#EBC362'],
+        hindThigh: '#EBC462',
+        hindPaw: ['#F7DC82'],
+        bellyType: 'oval',
+        bellyGrad: ['#F8B4C8', '#F29AB4'],
+        bellyRx: 36,
+        bellyRy: 52,
+        strokeBelly: true,
+      },
+      limb: {
+        style: 'solid',
+        armGrad: ['#F8DE84', '#FCE596', '#F6D878'],
+        shoulderCap: '#F8DE84',
+        pawGrad: ['#FFF1B8', '#F9DF86', '#ECC564'],
+        toeStroke: '#181411',
+        beanColor: '255, 148, 164',
+      },
+      neck: {
+        type: 'collar',
+        grad: ['#F8B2C6', '#F398B2', '#E67F9D'],
+      },
+      head: {
+        shape: 'plump',
+        crownFluff: true,
+        crownFill: '#FBE69A',
+        grad: ['#FDF0B4', '#F9DF85', '#ECC666'],
+        earType: 'floppy',
+        earGrad: ['#F9DF86', '#F6CE72', '#ED9F4E', '#E28B38'],
+        maskType: 'muzzle-oval',
+        muzzleFill: '#FFF3BF',
+        browDots: null,
+      },
+      face: {
+        sunglasses: true,
+        mouthBone: true,
+        eyeSocketRim: false,
+        noseColor: '#141210',
+        lipStroke: '#181411',
+        whiskers: 'none',
+      },
+      desk: {
+        kbBase: '#5A4A36',
+        kbTop1: '#F2DDA8',
+        kbTop2: '#DEC07C',
+        kbStroke: '#181411',
+        kbStrokeW: 2.8,
+        kbWell: '#483B2B',
+        capSide: '#D8C8A8',
+        capTop: '#FFFDF5',
+        capText: '#2E2418',
+        accentTop1: '#FFB94E',
+        accentTop2: '#F08E26',
+        padLight: 'rgba(242, 206, 122, 0.35)',
+        padDark: 'rgba(248, 212, 128, 0.14)',
+        padStrokeLight: 'rgba(168, 124, 48, 0.32)',
+        padStrokeDark: 'rgba(248, 212, 128, 0.3)',
+        mouseStroke: '#181411',
+      },
+    },
+    {
+      id: 'daisy',
+      name: '蓝巾小柴',
+      baseTilt: 0.042,
+      phaseOffset: 2.1,
+      outline: '#7A5134',
+      outlineW: 2.8,
+      backdrop: { c0: '#F3F9FF', c1: '#DCEEFF', c2: '#C1E1FE', crayon: true },
+      groundShadow: { light: 'rgba(116, 168, 234, 0.32)', sketchLines: false },
+      tail: {
+        type: 'curled-shiba',
+        colors: ['#F7BD6B', '#EC9846', '#DC8232'],
+      },
+      torso: {
+        grad: ['#F8BE6E', '#EC9846', '#DC8332'],
+        hindThigh: '#E69140',
+        hindPaw: ['#FFFDF9'],
+        bellyType: 'oval',
+        bellyGrad: ['#FFFFFF', '#FFFDF9', '#F5ECE0'],
+        bellyRx: 44,
+        bellyRy: 58,
+        strokeBelly: false,
+      },
+      limb: {
+        style: 'urajiro',
+        armGrad: ['#EE9C4B', '#F7BE72', '#FFFBF4', '#FFFDF9'],
+        shoulderCap: '#EE9C4B',
+        pawGrad: ['#FFFFFF', '#FFFDF9', '#EFE4D6'],
+        toeStroke: '#8C684C',
+        beanColor: '255, 148, 164',
+      },
+      neck: {
+        type: 'floral-bandana',
+        scarfGrad: ['#89B5F0', '#72A0E4', '#5D8CD4'],
+        leafColors: ['#7DA9EA', '#6B99DF', '#7BA8E8'],
+        outline: '#5B4A5E',
+      },
+      head: {
+        shape: 'plump',
+        crownFluff: false,
+        grad: ['#F9C478', '#EE9C4B', '#DF8636'],
+        earType: 'upright-shiba',
+        earGrad: ['#F7BD6C', '#EC9846', '#DF8635'],
+        earWhiteRim: true,
+        earInner: '#E8A5AC',
+        earTuftStyle: 'white-lines',
+        maskType: 'urajiro-shiba',
+        browDots: { color: 'rgba(255, 253, 248, 0.94)', x: 32, y: -34, rx: 11.5, ry: 7.2, tilt: -0.22 },
+      },
+      face: {
+        sunglasses: false,
+        mouthBone: false,
+        eyeSocketRim: false,
+        noseColor: '#2B201D',
+        lipStroke: '#3B231A',
+        whiskers: 'curved',
+      },
+      desk: {
+        kbBase: '#55657F',
+        kbTop1: '#8AA8D8',
+        kbTop2: '#6F8FC4',
+        kbStroke: '#5C483B',
+        kbStrokeW: 2.4,
+        kbWell: '#4E5D77',
+        capSide: '#CFD9E8',
+        capTop: '#FFFDF9',
+        capText: '#493D36',
+        accentTop1: '#FFC266',
+        accentTop2: '#F59E36',
+        padLight: 'rgba(134, 182, 242, 0.34)',
+        padDark: 'rgba(116, 166, 236, 0.16)',
+        padStrokeLight: 'rgba(92, 138, 202, 0.38)',
+        padStrokeDark: 'rgba(140, 186, 248, 0.3)',
+        mouseStroke: '#6A4E3B',
+      },
+    },
+    {
+      id: 'kuro',
+      name: '歪头黑柴',
+      baseTilt: 0.088,
+      phaseOffset: 4.2,
+      outline: '#0B0C0E',
+      outlineW: 3.1,
+      backdrop: { c0: '#FFFFFF', c1: '#FAF8F4', c2: '#EFECE4', crayon: false },
+      groundShadow: { light: 'rgba(92, 74, 56, 0.14)', sketchLines: true },
+      tail: {
+        type: 'spiky-shiba',
+        colors: ['#2B2E36', '#191B20', '#101215'],
+      },
+      torso: {
+        grad: ['#292C34', '#191B20', '#111317'],
+        hindThigh: '#181A1F',
+        hindPaw: ['#E8A86E', '#FCF3E6', '#FFFFFF'],
+        bellyType: 'none',
+      },
+      limb: {
+        style: 'tricolor',
+        upperColor: '#191B20',
+        tanColor: '#E8A86E',
+        tanLight: '#EAB07A',
+        shoulderCap: '#191B20',
+        pawGrad: ['#FFFFFF', '#FFFDF9', '#EFE4D6'],
+        toeStroke: '#0B0C0E',
+        beanColor: '68, 52, 48',
+      },
+      neck: {
+        type: 'fur-ruff-vchest',
+        ruffColor: '#191B20',
+        vChestColor: '#FCF3E6',
+      },
+      head: {
+        shape: 'fluffy-cheek',
+        crownFluff: false,
+        grad: ['#2D313A', '#1A1C21', '#111216'],
+        earType: 'upright-shiba',
+        earGrad: ['#191B20', '#191B20', '#191B20'],
+        earWhiteRim: false,
+        earInner: ['#EAC0A8', '#D89F84'],
+        earTuftStyle: 'dark-spikes',
+        maskType: 'black-tan-shiba',
+        browDots: { color: '#EEB67E', x: 28, y: -28, rx: 11.5, ry: 7.2, tilt: 0.28 },
+      },
+      face: {
+        sunglasses: false,
+        mouthBone: false,
+        eyeSocketRim: true,
+        noseColor: '#0E0D10',
+        lipStroke: '#0B0C0E',
+        whiskers: 'short',
+      },
+      desk: {
+        kbBase: '#12141A',
+        kbTop1: '#2D313C',
+        kbTop2: '#1E2129',
+        kbStroke: '#0B0C0E',
+        kbStrokeW: 2.6,
+        kbWell: '#13151B',
+        capSide: '#CFD5DF',
+        capTop: '#F8F9FB',
+        capText: '#262A34',
+        accentTop1: '#F2B476',
+        accentTop2: '#DE9248',
+        padLight: 'rgba(42, 46, 56, 0.1)',
+        padDark: 'rgba(255, 255, 255, 0.08)',
+        padStrokeLight: 'rgba(42, 46, 56, 0.22)',
+        padStrokeDark: 'rgba(255, 255, 255, 0.18)',
+        mouseStroke: '#1A1D24',
+      },
+    },
+  ];
 
   // =========================================================================
   // Subtle Colored-Pencil Texture Tile
@@ -93,7 +315,7 @@
   initPatterns();
 
   // =========================================================================
-  // Web Audio Synthesizer (Optional Crisp Key & Mouse Sounds)
+  // Web Audio Synthesizer
   // =========================================================================
   let soundEnabled = false;
   let audioCtx = null;
@@ -164,18 +386,13 @@
   }
 
   // =========================================================================
-  // Local Puppy + Unobstructed Front Desk Geometry (Keyboard Left, Mouse Right!)
+  // Shared Workstation & Squatting Rig Constants
   // =========================================================================
-  // Coordinate system per puppy unit (around (cx, baseY)):
-  //   - Puppy squats cleanly ABOVE y = 0 (resting front toes at y = +4)
-  //   - Keyboard sits on the left-center [-176, +72], cleanly below puppy (top edge = +9)
-  //   - Mouse Pad & User-Perspective Mouse sit on the RIGHT [+102, +184],
-  //     separated from the keyboard by a 30px gap (not touching!)
   const DOG_X = -12;
 
   const KB_LOCAL = {
     cx: -43,
-    cy: 52, // Top edge = 52 - 43 = +9 (clean unobstructed gap below puppy's front toes at +4!)
+    cy: 52,
     w: 248,
     h: 86,
     angle: -0.015,
@@ -185,7 +402,7 @@
   };
 
   const MOUSE_PAD_LOCAL = {
-    cx: 126, // Left edge = 126 - 38 = +88 -> 7px snug gap from keyboard right edge (+81)!
+    cx: 126,
     cy: 54,
     w: 76,
     h: 78,
@@ -198,15 +415,10 @@
     maxY: 64,
   };
 
-  const MOUSE_SIZE_LOCAL = {
-    w: 46,
-    h: 64,
-  };
-
+  const MOUSE_SIZE_LOCAL = { w: 46, h: 64 };
   const INIT_MOUSE_LX = 126;
   const INIT_MOUSE_LY = 54;
 
-  // Squatting front-paw home coordinates (exact resting paw center under fixed shoulder pivot!)
   const SHOULDER_OFFSET_X = 37;
   const SHOULDER_Y = -94;
   const LEFT_SQUAT_HOME_X = DOG_X - 35;
@@ -354,7 +566,6 @@
     const rowH = (innerH - KB_LOCAL.gap * (numRows - 1)) / numRows;
 
     let curY = -KB_LOCAL.h * 0.5 + KB_LOCAL.padY;
-
     for (const row of KEY_ROWS_SPEC) {
       const totalUnits = row.reduce((sum, k) => sum + k.w, 0);
       const unitW = (innerW - KB_LOCAL.gap * (row.length - 1)) / totalUnits;
@@ -391,85 +602,72 @@
   buildKeyboardGeometry();
 
   // =========================================================================
-  // Per-Puppy Squatting + On-Demand Reaching Paw State
+  // Live Character Instances & Input State
   // =========================================================================
-  function createDogState(phaseOffset, baseTilt) {
+  function createDogInstance(def) {
     return {
-      phaseOffset,
-      baseTilt,
-      breathPhase: phaseOffset,
-      tailPhase: phaseOffset * 1.6,
-      bounce: 0,
-      leftEarKick: 0,
-      rightEarKick: 0,
-      excitement: 0,
-      blinkTimer: 2.0 + phaseOffset * 0.8,
-      blinkProgress: 0,
-      glintProgress: 0,
-      leanX: 0,
-      targetLeanX: 0,
-      lookX: 0,
-      lookY: 0,
-      targetLookX: 0,
-      targetLookY: 0,
-      keyGlanceUntil: -1,
-      // Left paw: defaults to 'squat'. Reaches out onto left-hand keyboard keys!
-      leftPaw: {
-        x: LEFT_SQUAT_HOME_X,
-        y: LEFT_SQUAT_HOME_Y,
-        targetX: LEFT_SQUAT_HOME_X,
-        targetY: LEFT_SQUAT_HOME_Y,
-        prevX: LEFT_SQUAT_HOME_X,
-        prevY: LEFT_SQUAT_HOME_Y,
-        ghostAlpha: 0,
-        mode: 'squat', // 'squat' | 'keyboard'
-        activeKeyCode: null,
-        holdUntil: 0,
-        lift: 0,
-        press: 0,
-        isExtended: false,
-      },
-      // Right paw: defaults to 'squat'. Reaches out onto right-hand keys OR the right-side Mouse!
-      rightPaw: {
-        x: RIGHT_SQUAT_HOME_X,
-        y: RIGHT_SQUAT_HOME_Y,
-        targetX: RIGHT_SQUAT_HOME_X,
-        targetY: RIGHT_SQUAT_HOME_Y,
-        prevX: RIGHT_SQUAT_HOME_X,
-        prevY: RIGHT_SQUAT_HOME_Y,
-        ghostAlpha: 0,
-        mode: 'squat', // 'squat' | 'mouse' | 'keyboard'
-        activeKeyCode: null,
-        holdUntil: 0,
-        clickShiftX: 0,
-        clickShiftY: 0,
-        lift: 0,
-        press: 0,
-        isExtended: false,
+      def,
+      id: def.id,
+      name: def.name,
+      state: {
+        breathPhase: def.phaseOffset,
+        tailPhase: def.phaseOffset * 1.6,
+        bounce: 0,
+        leftEarKick: 0,
+        rightEarKick: 0,
+        excitement: 0,
+        blinkTimer: 2.0 + def.phaseOffset * 0.8,
+        blinkProgress: 0,
+        glintProgress: 0,
+        leanX: 0,
+        targetLeanX: 0,
+        lookX: 0,
+        lookY: 0,
+        targetLookX: 0,
+        targetLookY: 0,
+        keyGlanceUntil: -1,
+        // Petting / Happy Expression blend (0 = Kuro default calm/round-eyed, 1 = Daisy laughing + blush!)
+        happyBlend: 0,
+        petHoldUntil: -1,
+        lastHeartAt: 0,
+        leftPaw: {
+          x: LEFT_SQUAT_HOME_X,
+          y: LEFT_SQUAT_HOME_Y,
+          targetX: LEFT_SQUAT_HOME_X,
+          targetY: LEFT_SQUAT_HOME_Y,
+          prevX: LEFT_SQUAT_HOME_X,
+          prevY: LEFT_SQUAT_HOME_Y,
+          ghostAlpha: 0,
+          mode: 'squat',
+          activeKeyCode: null,
+          holdUntil: 0,
+          lift: 0,
+          press: 0,
+          isExtended: false,
+        },
+        rightPaw: {
+          x: RIGHT_SQUAT_HOME_X,
+          y: RIGHT_SQUAT_HOME_Y,
+          targetX: RIGHT_SQUAT_HOME_X,
+          targetY: RIGHT_SQUAT_HOME_Y,
+          prevX: RIGHT_SQUAT_HOME_X,
+          prevY: RIGHT_SQUAT_HOME_Y,
+          ghostAlpha: 0,
+          mode: 'squat',
+          activeKeyCode: null,
+          holdUntil: 0,
+          clickShiftX: 0,
+          clickShiftY: 0,
+          lift: 0,
+          press: 0,
+          isExtended: false,
+        },
       },
     };
   }
 
-  const dogs = {
-    sunny: {
-      id: 'sunny',
-      name: '墨镜金毛',
-      subtitle: '图1 · 垂耳酷金毛',
-      state: createDogState(0.0, -0.032),
-    },
-    daisy: {
-      id: 'daisy',
-      name: '蓝巾笑柴',
-      subtitle: '图2 · 蓝花巾笑柴',
-      state: createDogState(2.1, 0.042),
-    },
-    kuro: {
-      id: 'kuro',
-      name: '歪头黑柴',
-      subtitle: '图3 · 豆眉小黑柴',
-      state: createDogState(4.2, 0.088),
-    },
-  };
+  const dogsList = CHARACTER_DEFS.map(createDogInstance);
+  const dogsById = new Map(dogsList.map((d) => [d.id, d]));
 
   const inputState = {
     time: 0,
@@ -483,6 +681,8 @@
     mouseNormY: 0.5,
     pointerStageX: STAGE_W * 0.5,
     pointerStageY: STAGE_H * 0.4,
+    prevPointerStageX: STAGE_W * 0.5,
+    prevPointerStageY: STAGE_H * 0.4,
     pointerInWindow: false,
     mouseLX: INIT_MOUSE_LX,
     mouseLY: INIT_MOUSE_LY,
@@ -504,11 +704,12 @@
     popups: [],
     ripples: [],
     particles: [],
+    hearts: [],
     mouseBadges: [],
   };
 
   // =========================================================================
-  // Math & Stage Layout Helpers
+  // Math & Layout Helpers
   // =========================================================================
   function clamp(v, min, max) {
     return Math.max(min, Math.min(max, v));
@@ -542,13 +743,17 @@
 
   function getActivePlacements() {
     if (currentView === 'all') {
-      return [
-        { dog: dogs.sunny, cx: 235, baseY: 446, scale: 0.94 },
-        { dog: dogs.daisy, cx: 660, baseY: 446, scale: 0.94 },
-        { dog: dogs.kuro, cx: 1085, baseY: 446, scale: 0.94 },
-      ];
+      const count = dogsList.length;
+      const spacing = 425;
+      const startX = STAGE_W * 0.5 - ((count - 1) * spacing) * 0.5;
+      return dogsList.map((dog, idx) => ({
+        dog,
+        cx: startX + idx * spacing,
+        baseY: 446,
+        scale: 0.94,
+      }));
     }
-    const target = dogs[currentView] || dogs.daisy;
+    const target = dogsById.get(currentView) || dogsList[0];
     return [{ dog: target, cx: STAGE_W * 0.5, baseY: 446, scale: 1.16 }];
   }
 
@@ -557,6 +762,22 @@
       sx: placement.cx + ux * placement.scale,
       sy: placement.baseY + uy * placement.scale,
     };
+  }
+
+  // Hit-test if stage coordinates (sx, sy) are over a puppy's head (for 摸摸头!)
+  function findHoveredHeadPlacement(sx, sy) {
+    for (const p of getActivePlacements()) {
+      const st = p.dog.state;
+      const hx = p.cx + (DOG_X + st.leanX + st.lookX * 11) * p.scale;
+      const hy = p.baseY + (-204 + st.lookY * 6.5) * p.scale;
+      const rx = 114 * p.scale;
+      const ry = 100 * p.scale;
+      const normDistSq = Math.pow((sx - hx) / rx, 2) + Math.pow((sy - hy) / ry, 2);
+      if (normDistSq <= 1.05) {
+        return { placement: p, hx, hy };
+      }
+    }
+    return null;
   }
 
   function incrementAction(hintText) {
@@ -588,12 +809,25 @@
     }
   }
 
+  function spawnFloatingHeart(x, y, size = 13) {
+    inputState.hearts.push({
+      x: x + (Math.random() - 0.5) * 64,
+      y: y + (Math.random() - 0.5) * 18,
+      vx: (Math.random() - 0.5) * 28,
+      vy: -48 - Math.random() * 34,
+      size: size + Math.random() * 4,
+      rot: (Math.random() - 0.5) * 0.4,
+      life: 0,
+      maxLife: 0.85 + Math.random() * 0.25,
+    });
+  }
+
   function spawnMouseBadge(x, y, text, color) {
     inputState.mouseBadges.push({ x, y, text, color, life: 0, maxLife: 0.72 });
   }
 
   // =========================================================================
-  // Enlarged Floating Keycap Popups (Pop-Up + Smooth Gradient Fade-Out!)
+  // Enlarged Floating Keycap Popups
   // =========================================================================
   function getKeyDisplayInfo(e, keyObj, alias) {
     if (alias) {
@@ -636,7 +870,7 @@
     }
 
     const placements = getActivePlacements();
-    const anchorPlacement = placements.length === 3 ? placements[1] : placements[0];
+    const anchorPlacement = placements[Math.floor(placements.length * 0.5)];
     const keyUX = keyObj ? keyObj.ux : KB_LOCAL.cx;
     const keyUY = keyObj ? keyObj.uy : KB_LOCAL.cy;
     const startPos = unitToStage(anchorPlacement, keyUX, keyUY - 8);
@@ -722,7 +956,7 @@
   }
 
   // =========================================================================
-  // HUD Controls & Global Keyboard / Mouse Listeners
+  // HUD Controls & Global Listeners (Keyboard + Mouse + Head Petting!)
   // =========================================================================
   function syncThemeUI() {
     document.body.classList.toggle('theme-dark', isDarkTheme);
@@ -745,14 +979,13 @@
       dog.state.leftEarKick = 0.85;
       dog.state.rightEarKick = 0.85;
       dog.state.excitement = Math.max(dog.state.excitement, 0.4);
-      if (dog.id === 'sunny') dog.state.glintProgress = 0.01;
+      if (dog.def.face.sunglasses) dog.state.glintProgress = 0.01;
     }
 
-    if (viewId === 'all') {
-      statusHintEl.textContent = '保持乖巧蹲坐 · 按键盘或动/点鼠标时才伸前爪去操作';
-    } else if (dogs[viewId]) {
-      statusHintEl.textContent = `已切换：${dogs[viewId].name} · 按键盘或动/点鼠标试试`;
-    }
+    const activeDog = dogsById.get(viewId);
+    statusHintEl.textContent = activeDog
+      ? `已切换：${activeDog.name} · 鼠标摸摸头变笑柴表情，敲键/点鼠标伸爪联动`
+      : '默认乖巧表情 · 鼠标移到小狗头上摸摸头解锁开心大笑表情 💕';
     drawScene();
   }
 
@@ -809,9 +1042,7 @@
       inputState.time < inputState.mouseActiveUntil;
 
     let useRight = keyObj.hand === 'right';
-    if (useRight && mouseBusy) {
-      useRight = false;
-    }
+    if (useRight && mouseBusy) useRight = false;
 
     if (!useRight) {
       const lp = st.leftPaw;
@@ -845,7 +1076,7 @@
     st.keyGlanceUntil = inputState.time + 0.32;
     st.bounce = 0.9;
     st.excitement = Math.min(1, st.excitement + 0.25);
-    if (dogObj.id === 'sunny' && st.glintProgress === 0 && Math.random() < 0.35) {
+    if (dogObj.def.face.sunglasses && st.glintProgress === 0 && Math.random() < 0.35) {
       st.glintProgress = 0.01;
     }
   }
@@ -920,7 +1151,7 @@
       if (p.code === code && p.isHeld) p.isHeld = false;
     }
 
-    for (const dogObj of Object.values(dogs)) {
+    for (const dogObj of dogsList) {
       const st = dogObj.state;
       if (keyObj && st.leftPaw.activeKeyCode === keyObj.code) {
         st.leftPaw.activeKeyCode = null;
@@ -945,13 +1176,14 @@
   });
 
   function updatePointerStagePos(clientX, clientY) {
+    inputState.prevPointerStageX = inputState.pointerStageX;
+    inputState.prevPointerStageY = inputState.pointerStageY;
     inputState.pointerStageX = (clientX - viewport.offsetX) / viewport.scale;
     inputState.pointerStageY = (clientY - viewport.offsetY) / viewport.scale;
     inputState.pointerInWindow = true;
   }
 
   function activateMouseReach(clientX, clientY, holdSeconds = 0.65) {
-    updatePointerStagePos(clientX, clientY);
     const nx = clamp(clientX / Math.max(1, window.innerWidth), 0, 1);
     const ny = clamp(clientY / Math.max(1, window.innerHeight), 0, 1);
 
@@ -961,7 +1193,7 @@
     inputState.mouseTargetLY = lerp(MOUSE_BOUNDS_LOCAL.minY, MOUSE_BOUNDS_LOCAL.maxY, ny);
     inputState.mouseActiveUntil = Math.max(inputState.mouseActiveUntil, inputState.time + holdSeconds);
 
-    for (const dogObj of Object.values(dogs)) {
+    for (const dogObj of dogsList) {
       const st = dogObj.state;
       st.rightPaw.mode = 'mouse';
       st.rightPaw.isExtended = true;
@@ -980,16 +1212,61 @@
   window.addEventListener('mousemove', (e) => {
     updatePointerStagePos(e.clientX, e.clientY);
     syncMouseButtonsBitmask(e.buttons);
-    if (e.target && e.target.closest && e.target.closest('.hud-top')) return;
-    activateMouseReach(e.clientX, e.clientY, 0.62);
-  });
 
-  document.addEventListener('mouseleave', () => {
-    inputState.pointerInWindow = false;
+    if (e.target && e.target.closest && e.target.closest('.hud-top')) {
+      canvas.style.cursor = 'default';
+      return;
+    }
+
+    // Check if user is petting/hovering a puppy's head!
+    const headHit = findHoveredHeadPlacement(inputState.pointerStageX, inputState.pointerStageY);
+    if (headHit) {
+      canvas.style.cursor = 'grab';
+      const { dog } = headHit.placement;
+      const st = dog.state;
+      st.petHoldUntil = Math.max(st.petHoldUntil, inputState.time + 0.42);
+      st.excitement = Math.min(1, st.excitement + 0.08);
+
+      const moveStep = Math.hypot(
+        inputState.pointerStageX - inputState.prevPointerStageX,
+        inputState.pointerStageY - inputState.prevPointerStageY
+      );
+      if (moveStep > 4 && inputState.time - st.lastHeartAt > 0.18) {
+        st.lastHeartAt = inputState.time;
+        st.leftEarKick = Math.max(st.leftEarKick, 0.55);
+        st.rightEarKick = Math.max(st.rightEarKick, 0.55);
+        spawnFloatingHeart(headHit.hx, headHit.hy - 78 * headHit.placement.scale);
+        statusHintEl.textContent = `正在摸摸「${dog.name}」的头 💕`;
+      }
+      return; // Stay in cute squatting pose enjoying head-pet instead of reaching for desk mouse!
+    }
+
+    canvas.style.cursor = 'default';
+    activateMouseReach(e.clientX, e.clientY, 0.62);
   });
 
   window.addEventListener('mousedown', (e) => {
     if (e.target && e.target.closest && e.target.closest('.hud-top')) return;
+    updatePointerStagePos(e.clientX, e.clientY);
+
+    // Clicking on a puppy's head gives an extra joyful pet bounce + hearts!
+    const headHit = findHoveredHeadPlacement(inputState.pointerStageX, inputState.pointerStageY);
+    if (headHit && e.button === 0) {
+      const { dog, scale } = headHit.placement;
+      const st = dog.state;
+      st.petHoldUntil = Math.max(st.petHoldUntil, inputState.time + 1.15);
+      st.bounce = 1.0;
+      st.leftEarKick = 1.0;
+      st.rightEarKick = 1.0;
+      st.excitement = 1.0;
+      if (dog.def.face.sunglasses) st.glintProgress = 0.01;
+      for (let i = 0; i < 3; i++) {
+        spawnFloatingHeart(headHit.hx, headHit.hy - 78 * scale, 15);
+      }
+      playMouseClickSound(false);
+      incrementAction(`摸了摸「${dog.name}」的脑袋 💕`);
+      return;
+    }
 
     activateMouseReach(e.clientX, e.clientY, 0.78);
     const placements = getActivePlacements();
@@ -1005,7 +1282,6 @@
       inputState.leftDown = true;
       inputState.leftGlow = 1;
       for (const p of placements) {
-        // Top-Left button (User perspective!)
         const mPos = unitToStage(p, inputState.mouseLX - 11, inputState.mouseLY - 14);
         spawnRipple(mPos.sx, mPos.sy, '#FF7849', 34 * p.scale);
         spawnSparkles(mPos.sx, mPos.sy, '#FF7849', placements.length > 1 ? 3 : 5);
@@ -1017,7 +1293,6 @@
       inputState.rightDown = true;
       inputState.rightGlow = 1;
       for (const p of placements) {
-        // Top-Right button (User perspective!)
         const mPos = unitToStage(p, inputState.mouseLX + 11, inputState.mouseLY - 14);
         spawnRipple(mPos.sx, mPos.sy, '#38BDF8', 34 * p.scale);
         spawnSparkles(mPos.sx, mPos.sy, '#38BDF8', placements.length > 1 ? 3 : 5);
@@ -1044,11 +1319,15 @@
     else if (e.button === 2) inputState.rightDown = false;
     else if (e.button === 1) inputState.middleDown = false;
     syncMouseButtonsBitmask(e.buttons);
-    inputState.mouseActiveUntil = Math.max(inputState.mouseActiveUntil, inputState.time + 0.5);
   });
 
   window.addEventListener('contextmenu', (e) => {
     e.preventDefault();
+  });
+
+  document.addEventListener('mouseleave', () => {
+    inputState.pointerInWindow = false;
+    canvas.style.cursor = 'default';
   });
 
   window.addEventListener(
@@ -1057,7 +1336,7 @@
       inputState.wheelVel += clamp(e.deltaY, -120, 120) * 0.28;
       inputState.middleGlow = Math.max(inputState.middleGlow, 0.85);
       inputState.mouseActiveUntil = Math.max(inputState.mouseActiveUntil, inputState.time + 0.65);
-      for (const dogObj of Object.values(dogs)) {
+      for (const dogObj of dogsList) {
         const st = dogObj.state;
         st.rightPaw.mode = 'mouse';
         st.rightPaw.isExtended = true;
@@ -1091,10 +1370,10 @@
     }
 
     const link = document.createElement('a');
-    link.download = `peng-dogs-${currentView}-squat-desk.png`;
+    link.download = `peng-dogs-${currentView}.png`;
     link.href = offCanvas.toDataURL('image/png');
     link.click();
-    statusHintEl.textContent = `已导出透明 PNG：peng-dogs-${currentView}-squat-desk.png`;
+    statusHintEl.textContent = `已导出透明 PNG：peng-dogs-${currentView}.png`;
   }
 
   // =========================================================================
@@ -1103,7 +1382,6 @@
   function update(dt) {
     inputState.time += dt;
 
-    // Shared Mouse glide & button glows
     const prevMx = inputState.mouseLX;
     const mFollow = 1 - Math.exp(-dt * 24);
     inputState.mouseLX = lerp(inputState.mouseLX, inputState.mouseTargetLX, mFollow);
@@ -1119,14 +1397,9 @@
     inputState.wheelOffset += inputState.wheelVel * dt;
     inputState.wheelVel *= Math.exp(-dt * 10);
 
-    if (inputState.leftDown) inputState.leftGlow = 1;
-    else inputState.leftGlow = Math.max(0, inputState.leftGlow - dt * 3.0);
-
-    if (inputState.rightDown) inputState.rightGlow = 1;
-    else inputState.rightGlow = Math.max(0, inputState.rightGlow - dt * 3.0);
-
-    if (inputState.middleDown) inputState.middleGlow = 1;
-    else inputState.middleGlow = Math.max(0, inputState.middleGlow - dt * 3.2);
+    inputState.leftGlow = inputState.leftDown ? 1 : Math.max(0, inputState.leftGlow - dt * 3.0);
+    inputState.rightGlow = inputState.rightDown ? 1 : Math.max(0, inputState.rightGlow - dt * 3.0);
+    inputState.middleGlow = inputState.middleDown ? 1 : Math.max(0, inputState.middleGlow - dt * 3.2);
 
     const anyMouseHeld = inputState.leftDown || inputState.rightDown || inputState.middleDown;
     if (anyMouseHeld) {
@@ -1136,25 +1409,38 @@
 
     for (const k of keysList) {
       k.press = lerp(k.press, k.isDown ? 1 : 0, 1 - Math.exp(-dt * 30));
-      if (k.isDown) k.glow = 1;
-      else k.glow = Math.max(0, k.glow - dt * 3.4);
+      k.glow = k.isDown ? 1 : Math.max(0, k.glow - dt * 3.4);
     }
 
     const activePlacements = getActivePlacements();
     const placementById = new Map(activePlacements.map((p) => [p.dog.id, p]));
+    const hoveredHead = inputState.pointerInWindow
+      ? findHoveredHeadPlacement(inputState.pointerStageX, inputState.pointerStageY)
+      : null;
 
     const pawFollow = 1 - Math.exp(-dt * 24);
-    for (const dogObj of Object.values(dogs)) {
+
+    for (const dogObj of dogsList) {
       const st = dogObj.state;
+      const placement = placementById.get(dogObj.id);
+
+      // Check if this specific puppy's head is currently being petted!
+      const isHeadHovered = Boolean(hoveredHead && hoveredHead.placement.dog.id === dogObj.id);
+      if (isHeadHovered) {
+        st.petHoldUntil = Math.max(st.petHoldUntil, inputState.time + 0.28);
+      }
+      const isPetted = inputState.time < st.petHoldUntil;
+      st.happyBlend = lerp(st.happyBlend, isPetted ? 1 : 0, 1 - Math.exp(-dt * (isPetted ? 14 : 8)));
+
       st.breathPhase += dt * 2.5;
+      if (isPetted) st.excitement = Math.max(st.excitement, 0.55);
       st.excitement = Math.max(0, st.excitement - dt * 0.45);
       st.tailPhase += dt * (4.5 + st.excitement * 11.0);
 
       st.leanX = lerp(st.leanX, st.targetLeanX, 1 - Math.exp(-dt * 9));
       st.targetLeanX *= Math.exp(-dt * 2.0);
 
-      // Continuous per-puppy head & eye gaze tracking toward cursor!
-      const placement = placementById.get(dogObj.id);
+      // Continuous per-puppy 2.5D head & eye gaze tracking toward cursor!
       if (inputState.time >= st.keyGlanceUntil) {
         if (inputState.pointerInWindow && placement) {
           const headStageX = placement.cx + (DOG_X + st.leanX) * placement.scale;
@@ -1184,7 +1470,7 @@
       if (st.glintProgress > 0) {
         st.glintProgress += dt * 2.4;
         if (st.glintProgress >= 1) st.glintProgress = 0;
-      } else if (dogObj.id === 'sunny' && Math.random() < dt * 0.18) {
+      } else if (dogObj.def.face.sunglasses && Math.random() < dt * 0.18) {
         st.glintProgress = 0.01;
       }
 
@@ -1194,10 +1480,9 @@
       const rightHomeX = bodyX + 35;
       const rightHomeY = RIGHT_SQUAT_HOME_Y;
 
-      // ---- LEFT PAW STATE MACHINE ('squat' <-> 'keyboard') ----
+      // Left Paw ('squat' <-> 'keyboard')
       const lp = st.leftPaw;
       const leftKeyWanted = lp.activeKeyCode !== null || inputState.time < lp.holdUntil;
-
       if (leftKeyWanted) {
         lp.mode = 'keyboard';
         lp.isExtended = true;
@@ -1210,28 +1495,27 @@
       const lpDist = Math.hypot(lp.targetX - lp.x, lp.targetY - lp.y);
       lp.x = lerp(lp.x, lp.targetX, pawFollow);
       lp.y = lerp(lp.y, lp.targetY, pawFollow);
-      lp.ghostAlpha = Math.max(0, (lp.ghostAlpha || 0) - dt * 3.8);
+      lp.ghostAlpha = Math.max(0, lp.ghostAlpha - dt * 3.8);
 
-      const lpDistFromHome = Math.hypot(lp.x - leftHomeX, lp.y - leftHomeY);
       if (lp.mode === 'squat' && lpDist < 0.6) {
         lp.x = leftHomeX;
         lp.y = leftHomeY;
         lp.isExtended = false;
-      } else if (lpDistFromHome > 0.8) {
+      } else if (Math.hypot(lp.x - leftHomeX, lp.y - leftHomeY) > 0.8) {
         lp.isExtended = true;
       }
 
       lp.lift = lerp(lp.lift, clamp(lpDist / 55, 0, 0.85), 1 - Math.exp(-dt * 24));
       lp.press = lerp(lp.press, leftKeyWanted && lpDist < 16 ? 1 : 0, 1 - Math.exp(-dt * 30));
 
-      // ---- RIGHT PAW STATE MACHINE ('squat' <-> 'mouse' / 'keyboard') ----
+      // Right Paw ('squat' <-> 'mouse' / 'keyboard')
       const rp = st.rightPaw;
       const rightKeyWanted =
         rp.mode === 'keyboard' && (rp.activeKeyCode !== null || inputState.time < rp.holdUntil);
 
       if (rightKeyWanted) {
         rp.isExtended = true;
-      } else if (mouseWanted) {
+      } else if (mouseWanted && !hoveredHead) {
         rp.mode = 'mouse';
         rp.isExtended = true;
         let cShiftX = 0;
@@ -1260,12 +1544,11 @@
       rp.y = lerp(rp.y, rp.targetY, pawFollow);
       rp.ghostAlpha = Math.max(0, rp.ghostAlpha - dt * 3.8);
 
-      const rpDistFromHome = Math.hypot(rp.x - rightHomeX, rp.y - rightHomeY);
       if (rp.mode === 'squat' && rpDist < 0.6) {
         rp.x = rightHomeX;
         rp.y = rightHomeY;
         rp.isExtended = false;
-      } else if (rpDistFromHome > 0.8) {
+      } else if (Math.hypot(rp.x - rightHomeX, rp.y - rightHomeY) > 0.8) {
         rp.isExtended = true;
       }
 
@@ -1277,7 +1560,7 @@
       rp.press = lerp(rp.press, rpClicking ? 1 : 0, 1 - Math.exp(-dt * 28));
     }
 
-    // Enlarged floating keycaps (pop-up + smooth gradient fade-out!)
+    // Popups & Particles
     for (let i = inputState.popups.length - 1; i >= 0; i--) {
       const p = inputState.popups[i];
       p.age += dt;
@@ -1295,7 +1578,6 @@
         p.fadeElapsed += dt;
         p.fadeProgress = clamp(p.fadeElapsed / fadeDur, 0, 1);
       }
-
       if (p.fadeProgress >= 1) inputState.popups.splice(i, 1);
     }
 
@@ -1315,6 +1597,15 @@
       if (pt.life >= pt.maxLife) inputState.particles.splice(i, 1);
     }
 
+    for (let i = inputState.hearts.length - 1; i >= 0; i--) {
+      const h = inputState.hearts[i];
+      h.life += dt;
+      h.x += h.vx * dt;
+      h.y += h.vy * dt;
+      h.vy += 38 * dt;
+      if (h.life >= h.maxLife) inputState.hearts.splice(i, 1);
+    }
+
     for (let i = inputState.mouseBadges.length - 1; i >= 0; i--) {
       inputState.mouseBadges[i].life += dt;
       if (inputState.mouseBadges[i].life >= inputState.mouseBadges[i].maxLife) {
@@ -1324,7 +1615,7 @@
   }
 
   // =========================================================================
-  // Backdrop & Ambient Decorations
+  // Shared Backdrop & Ambient Decorations
   // =========================================================================
   function drawBackdropFullViewport() {
     const w = viewport.cssW;
@@ -1344,28 +1635,19 @@
       return;
     }
 
-    const grad = ctx.createRadialGradient(w * 0.5, h * 0.44, 40, w * 0.5, h * 0.5, Math.max(w, h) * 0.82);
-    if (currentView === 'daisy') {
-      grad.addColorStop(0, '#F3F9FF');
-      grad.addColorStop(0.55, '#DCEEFF');
-      grad.addColorStop(1, '#C1E1FE');
-    } else if (currentView === 'sunny') {
-      grad.addColorStop(0, '#FFFEFA');
-      grad.addColorStop(0.6, '#FFF7E4');
-      grad.addColorStop(1, '#F8E9C8');
-    } else if (currentView === 'kuro') {
-      grad.addColorStop(0, '#FFFFFF');
-      grad.addColorStop(0.65, '#FAF8F4');
-      grad.addColorStop(1, '#EFECE4');
-    } else {
-      grad.addColorStop(0, '#FCFDFE');
-      grad.addColorStop(0.6, '#EDF4FC');
-      grad.addColorStop(1, '#DCE9F8');
-    }
+    const activeDog = dogsById.get(currentView);
+    const bd = activeDog
+      ? activeDog.def.backdrop
+      : { c0: '#FCFDFE', c1: '#EDF4FC', c2: '#DCE9F8', crayon: true };
 
+    const grad = ctx.createRadialGradient(w * 0.5, h * 0.44, 40, w * 0.5, h * 0.5, Math.max(w, h) * 0.82);
+    grad.addColorStop(0, bd.c0);
+    grad.addColorStop(0.6, bd.c1);
+    grad.addColorStop(1, bd.c2);
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, w, h);
-    if (crayonLightPattern && (currentView === 'daisy' || currentView === 'all')) {
+
+    if (crayonLightPattern && bd.crayon) {
       ctx.fillStyle = crayonLightPattern;
       ctx.fillRect(0, 0, w, h);
     }
@@ -1436,8 +1718,6 @@
     c.scale(s, s);
 
     const stroke = '#6D96CC';
-    const fill = '#B8D8FA';
-
     for (const side of [-1, 1]) {
       c.beginPath();
       c.moveTo(side * 3, 4);
@@ -1458,17 +1738,10 @@
       c.bezierCurveTo(side * 14, -18, side * 36, -14, side * 32, 4);
       c.bezierCurveTo(side * 28, 18, side * 10, 12, 0, 3);
       c.closePath();
-      c.fillStyle = fill;
+      c.fillStyle = '#B8D8FA';
       c.fill();
       c.strokeStyle = stroke;
       c.lineWidth = 2.2;
-      c.stroke();
-
-      c.strokeStyle = 'rgba(255, 255, 255, 0.65)';
-      c.lineWidth = 2.4;
-      c.beginPath();
-      c.moveTo(side * 10, -4);
-      c.lineTo(side * 26, 2);
       c.stroke();
     }
 
@@ -1479,7 +1752,6 @@
     c.strokeStyle = stroke;
     c.lineWidth = 2.2;
     c.stroke();
-
     c.restore();
   }
 
@@ -1496,32 +1768,120 @@
   }
 
   // =========================================================================
-  // Shared Squatting Torso, Hind Legs & Resting Front Legs (Image 2 Pose!)
+  // SHARED COMPONENT 1: Tail, Squatting Hind Legs & Torso
   // =========================================================================
-  function defineSquatHindThighPath(c, bodyX, side, breath) {
-    c.beginPath();
-    c.moveTo(bodyX + side * 46, -98 + breath * 0.3);
-    c.bezierCurveTo(bodyX + side * 86, -92 + breath * 0.2, bodyX + side * 94, -50, bodyX + side * 80, -22);
-    c.bezierCurveTo(bodyX + side * 70, -12, bodyX + side * 52, -14, bodyX + side * 44, -26);
-    c.closePath();
-  }
-
-  function defineTuckedHindPawPath(c, bodyX, side) {
-    c.beginPath();
-    c.ellipse(bodyX + side * 71, -17, 18, 10.5, side * 0.12, 0, Math.PI * 2);
-  }
-
-  function drawHindPawToeCreases(c, bodyX, side, strokeColor, lineWidth) {
+  function drawSharedTail(c, def, bodyX, wagAngle, breath) {
+    const tSpec = def.tail;
+    const outline = def.outline;
     c.save();
-    c.strokeStyle = strokeColor;
-    c.lineWidth = lineWidth;
-    c.lineCap = 'round';
-    for (const ox of [66, 75]) {
+    c.translate(bodyX - 66, -54 + breath * 0.3);
+    c.rotate(-0.12 + wagAngle);
+
+    if (tSpec.type === 'feathered') {
       c.beginPath();
-      c.moveTo(bodyX + side * ox, -21);
-      c.lineTo(bodyX + side * (ox + 1), -12);
+      c.moveTo(6, 12);
+      c.bezierCurveTo(-18, 16, -46, 2, -58, -22);
+      c.bezierCurveTo(-64, -34, -54, -44, -42, -36);
+      c.bezierCurveTo(-46, -44, -36, -50, -26, -40);
+      c.bezierCurveTo(-16, -28, -4, -10, 10, -6);
+      c.closePath();
+
+      const tg = c.createLinearGradient(0, 10, -56, -38);
+      tg.addColorStop(0, tSpec.colors[0]);
+      tg.addColorStop(0.6, tSpec.colors[1]);
+      tg.addColorStop(1, tSpec.colors[2]);
+      c.fillStyle = tg;
+      c.fill();
+      c.strokeStyle = outline;
+      c.lineWidth = def.outlineW;
+      c.lineJoin = 'round';
+      c.stroke();
+
+      if (tSpec.wagLines) {
+        c.lineWidth = 2.4;
+        c.lineCap = 'round';
+        c.beginPath();
+        c.arc(-48, -32, 16, Math.PI * 0.88, Math.PI * 1.24);
+        c.stroke();
+        c.beginPath();
+        c.arc(-52, -34, 22, Math.PI * 0.92, Math.PI * 1.2);
+        c.stroke();
+      }
+    } else if (tSpec.type === 'curled-shiba') {
+      const path = () => {
+        c.beginPath();
+        c.moveTo(8, 18);
+        c.bezierCurveTo(-18, 22, -44, 0, -42, -32);
+        c.bezierCurveTo(-40, -56, -18, -66, 0, -52);
+        c.bezierCurveTo(12, -42, 16, -16, 8, 18);
+        c.closePath();
+      };
+      path();
+      const tg = c.createLinearGradient(-38, -52, 8, 14);
+      tg.addColorStop(0, tSpec.colors[0]);
+      tg.addColorStop(0.55, tSpec.colors[1]);
+      tg.addColorStop(1, tSpec.colors[2]);
+      c.fillStyle = tg;
+      c.fill();
+
+      c.save();
+      path();
+      c.clip();
+      c.fillStyle = 'rgba(255, 250, 240, 0.55)';
+      c.beginPath();
+      c.ellipse(-22, -44, 18, 14, -0.3, 0, Math.PI * 2);
+      c.fill();
+      c.restore();
+
+      path();
+      c.strokeStyle = outline;
+      c.lineWidth = def.outlineW;
+      c.lineJoin = 'round';
+      c.stroke();
+    } else if (tSpec.type === 'spiky-shiba') {
+      const path = () => {
+        c.beginPath();
+        c.moveTo(8, 18);
+        c.lineTo(-10, 18);
+        c.lineTo(-22, 12);
+        c.lineTo(-16, 8);
+        c.lineTo(-34, -2);
+        c.lineTo(-26, -6);
+        c.lineTo(-44, -22);
+        c.lineTo(-34, -25);
+        c.lineTo(-46, -42);
+        c.lineTo(-33, -42);
+        c.lineTo(-38, -58);
+        c.lineTo(-24, -52);
+        c.lineTo(-22, -66);
+        c.lineTo(-10, -55);
+        c.lineTo(-4, -64);
+        c.quadraticCurveTo(10, -48, 12, -18);
+        c.closePath();
+      };
+      path();
+      const tg = c.createRadialGradient(-18, -32, 6, -18, -28, 48);
+      tg.addColorStop(0, tSpec.colors[0]);
+      tg.addColorStop(0.65, tSpec.colors[1]);
+      tg.addColorStop(1, tSpec.colors[2]);
+      c.fillStyle = tg;
+      c.fill();
+
+      c.strokeStyle = 'rgba(248, 238, 224, 0.55)';
+      c.lineWidth = 2.2;
+      c.lineCap = 'round';
+      c.beginPath();
+      c.moveTo(-26, 4);
+      c.quadraticCurveTo(-34, -8, -30, -20);
+      c.stroke();
+
+      path();
+      c.strokeStyle = outline;
+      c.lineWidth = def.outlineW;
+      c.lineJoin = 'round';
       c.stroke();
     }
+
     c.restore();
   }
 
@@ -1536,222 +1896,609 @@
     c.closePath();
   }
 
-  // Image 2's Resting Squatting Front Leg & Ground-Tucked Paw (drawn whenever paw is NOT reaching out!)
-  function defineRestingFrontLegPath(c, bodyX, side, breath) {
-    const sy = -106 + breath * 0.4;
-    c.beginPath();
-    c.moveTo(bodyX + side * 58, sy);
-    c.bezierCurveTo(bodyX + side * 63, -76, bodyX + side * 59, -42, bodyX + side * 56, -22);
-    c.bezierCurveTo(bodyX + side * 62, -12, bodyX + side * 59, 3, bodyX + side * 42, 4);
-    c.bezierCurveTo(bodyX + side * 33, 5.5, bodyX + side * 23, 5.5, bodyX + side * 15, 3.5);
-    c.bezierCurveTo(bodyX + side * 8, 1, bodyX + side * 9, -12, bodyX + side * 13, -22);
-    c.bezierCurveTo(bodyX + side * 12, -46, bodyX + side * 11, -74, bodyX + side * 14, -92 + breath * 0.35);
-    c.closePath();
-  }
+  function drawSharedTorsoAndHindLegs(c, def, st, bodyX, breath) {
+    const outline = def.outline;
+    const lineW = def.outlineW;
+    const tSpec = def.torso;
+    const wag = Math.sin(st.tailPhase) * (0.14 + st.excitement * 0.25);
 
-  function drawRestingSquatFrontLeg(c, dogId, bodyX, side, breath) {
-    if (dogId === 'sunny') {
-      const ink = '#181411';
-      defineRestingFrontLegPath(c, bodyX, side, breath);
-      const lg = c.createLinearGradient(0, -106, 0, 5);
-      lg.addColorStop(0, '#F8DE84');
-      lg.addColorStop(0.75, '#FCE596');
-      lg.addColorStop(1, '#F4D372');
-      c.fillStyle = lg;
-      c.fill();
+    drawSharedTail(c, def, bodyX, wag, breath);
 
+    // Squatting hind thighs & tucked hind paws
+    for (const side of [-1, 1]) {
       c.beginPath();
-      c.moveTo(bodyX + side * 58, -98 + breath * 0.4);
-      c.bezierCurveTo(bodyX + side * 63, -74, bodyX + side * 59, -42, bodyX + side * 56, -22);
-      c.bezierCurveTo(bodyX + side * 62, -12, bodyX + side * 59, 3, bodyX + side * 42, 4);
-      c.bezierCurveTo(bodyX + side * 33, 5.5, bodyX + side * 23, 5.5, bodyX + side * 15, 3.5);
-      c.bezierCurveTo(bodyX + side * 8, 1, bodyX + side * 9, -12, bodyX + side * 13, -22);
-      c.bezierCurveTo(bodyX + side * 12, -46, bodyX + side * 11, -72, bodyX + side * 14, -88 + breath * 0.35);
-      c.strokeStyle = ink;
-      c.lineWidth = 3.8;
-      c.lineCap = 'round';
-      c.lineJoin = 'round';
-      c.stroke();
-
-      c.strokeStyle = ink;
-      c.lineWidth = 2.8;
-      for (const ox of [21, 32, 43]) {
-        c.beginPath();
-        c.moveTo(bodyX + side * ox, -7.5);
-        c.quadraticCurveTo(bodyX + side * (ox + 1.2), -1.5, bodyX + side * ox, 3.6);
-        c.stroke();
-      }
-      return;
-    }
-
-    if (dogId === 'daisy') {
-      const outline = '#7A5134';
-      defineRestingFrontLegPath(c, bodyX, side, breath);
-      const lg = c.createLinearGradient(0, -104, 0, 4);
-      lg.addColorStop(0, '#EE9C4B');
-      lg.addColorStop(0.36, '#F7BE72');
-      lg.addColorStop(0.62, '#FFFBF4');
-      lg.addColorStop(1, '#FFFDF9');
-      c.fillStyle = lg;
+      c.moveTo(bodyX + side * 46, -98 + breath * 0.3);
+      c.bezierCurveTo(bodyX + side * 86, -92 + breath * 0.2, bodyX + side * 94, -50, bodyX + side * 80, -22);
+      c.bezierCurveTo(bodyX + side * 70, -12, bodyX + side * 52, -14, bodyX + side * 44, -26);
+      c.closePath();
+      c.fillStyle = tSpec.hindThigh;
       c.fill();
-
-      c.beginPath();
-      c.moveTo(bodyX + side * 58, -98 + breath * 0.4);
-      c.bezierCurveTo(bodyX + side * 63, -74, bodyX + side * 59, -42, bodyX + side * 56, -22);
-      c.bezierCurveTo(bodyX + side * 62, -12, bodyX + side * 59, 3, bodyX + side * 42, 4);
-      c.bezierCurveTo(bodyX + side * 33, 5.5, bodyX + side * 23, 5.5, bodyX + side * 15, 3.5);
-      c.bezierCurveTo(bodyX + side * 8, 1, bodyX + side * 9, -12, bodyX + side * 13, -22);
-      c.bezierCurveTo(bodyX + side * 12, -40, bodyX + side * 11.5, -58, bodyX + side * 13, -72 + breath * 0.35);
       c.strokeStyle = outline;
-      c.lineWidth = 2.8;
-      c.lineCap = 'round';
+      c.lineWidth = lineW;
       c.lineJoin = 'round';
       c.stroke();
 
-      c.strokeStyle = '#8C684C';
-      c.lineWidth = 2.2;
-      for (const ox of [21, 32, 43]) {
+      c.beginPath();
+      c.ellipse(bodyX + side * 71, -17, 18, 10.5, side * 0.12, 0, Math.PI * 2);
+      if (tSpec.hindPaw.length === 1) {
+        c.fillStyle = tSpec.hindPaw[0];
+      } else {
+        const hpg = c.createLinearGradient(bodyX + side * 56, -24, bodyX + side * 84, -10);
+        hpg.addColorStop(0, tSpec.hindPaw[0]);
+        hpg.addColorStop(0.55, tSpec.hindPaw[1]);
+        hpg.addColorStop(1, tSpec.hindPaw[2]);
+        c.fillStyle = hpg;
+      }
+      c.fill();
+      c.strokeStyle = outline;
+      c.lineWidth = lineW * 0.88;
+      c.stroke();
+
+      c.lineCap = 'round';
+      c.lineWidth = lineW * 0.68;
+      for (const ox of [66, 75]) {
         c.beginPath();
-        c.moveTo(bodyX + side * ox, -7.5);
-        c.quadraticCurveTo(bodyX + side * (ox + 1.2), -1.5, bodyX + side * ox, 3.6);
+        c.moveTo(bodyX + side * ox, -21);
+        c.lineTo(bodyX + side * (ox + 1), -12);
         c.stroke();
       }
-      return;
     }
 
-    // Kuro tri-color Black -> Tan -> White front leg
-    const ink = '#0B0C0E';
+    // Squatting Torso + Optional Belly Patch
     c.save();
-    defineRestingFrontLegPath(c, bodyX, side, breath);
-    c.clip();
-
-    c.fillStyle = '#191B20';
-    c.fillRect(bodyX + side * 66, -112, -side * 62, 122);
-
-    c.fillStyle = '#E8A86E';
-    c.beginPath();
-    c.moveTo(bodyX + side * 8, -50);
-    c.lineTo(bodyX + side * 22, -58);
-    c.lineTo(bodyX + side * 30, -51);
-    c.lineTo(bodyX + side * 42, -59);
-    c.lineTo(bodyX + side * 64, -48);
-    c.lineTo(bodyX + side * 64, 10);
-    c.lineTo(bodyX + side * 8, 10);
-    c.closePath();
+    defineSquatTorsoPath(c, bodyX, breath);
+    const bodyGrad = c.createRadialGradient(bodyX, -94, 14, bodyX, -64, 90);
+    bodyGrad.addColorStop(0, tSpec.grad[0]);
+    bodyGrad.addColorStop(0.6, tSpec.grad[1]);
+    bodyGrad.addColorStop(1, tSpec.grad[2]);
+    c.fillStyle = bodyGrad;
     c.fill();
 
-    c.fillStyle = '#FFFDF9';
+    if (tSpec.bellyType === 'oval') {
+      c.save();
+      defineSquatTorsoPath(c, bodyX, breath);
+      c.clip();
+      const bg = c.createLinearGradient(bodyX, -114, bodyX, -16);
+      bg.addColorStop(0, tSpec.bellyGrad[0]);
+      if (tSpec.bellyGrad.length === 3) {
+        bg.addColorStop(0.8, tSpec.bellyGrad[1]);
+        bg.addColorStop(1, tSpec.bellyGrad[2]);
+      } else {
+        bg.addColorStop(1, tSpec.bellyGrad[1]);
+      }
+      c.fillStyle = bg;
+      c.beginPath();
+      c.ellipse(bodyX, -56 + breath * 0.25, tSpec.bellyRx, tSpec.bellyRy, 0, 0, Math.PI * 2);
+      c.fill();
+      if (tSpec.strokeBelly) {
+        c.strokeStyle = outline;
+        c.lineWidth = 2.8;
+        c.stroke();
+      }
+      c.restore();
+    }
+
+    defineSquatTorsoPath(c, bodyX, breath);
+    c.strokeStyle = outline;
+    c.lineWidth = lineW;
+    c.lineJoin = 'round';
+    c.stroke();
+    c.restore();
+  }
+
+  // =========================================================================
+  // SHARED COMPONENT 2: Unified Fixed-Shoulder Front Limb (0..1 Squat <-> Reach)
+  // =========================================================================
+  function drawUnifiedFrontLimb(c, def, { sx, sy, homeX, homeY, px, py, side, press, lift }) {
+    const lSpec = def.limb;
+    const outline = def.outline;
+    const outlineW = def.outlineW;
+
+    const distFromHome = Math.hypot(px - homeX, py - homeY);
+    const reachT = easeOutCubic(clamp(distFromHome / 44, 0, 1));
+
+    const pyVis = py - lift * 15;
+    const dx = px - sx;
+    const dy = pyVis - sy;
+    const len = Math.max(1, Math.hypot(dx, dy));
+
+    const bendX = side * lerp(2.5, Math.min(20, len * 0.16), reachT);
+    const bendY = lerp(0, -10, reachT) - lift * 9;
+    const cx = (sx + px) * 0.5 + bendX;
+    const cy = (sy + pyVis) * 0.5 + bendY;
+
+    const armEndAngle = Math.atan2(pyVis - cy, px - cx);
+    let targetPawRot = armEndAngle - Math.PI * 0.5;
+    while (targetPawRot > Math.PI) targetPawRot -= Math.PI * 2;
+    while (targetPawRot < -Math.PI) targetPawRot += Math.PI * 2;
+    const pawRot = targetPawRot * (reachT * 0.65);
+
+    const squashX = 1 + press * 0.1 - lift * 0.04;
+    const squashY = 1 - press * 0.08 + lift * 0.07;
+
+    const rShoulder = 21.5;
+    const rMid = lerp(20.2, 17.6, reachT);
+    const rWrist = lerp(18.5, 15.4, reachT);
+    const pawRX = lerp(22.2, 18.2, reachT);
+    const pawRY = lerp(12.2, 15.2, reachT);
+
+    c.save();
+
+    if (reachT > 0.08) {
+      c.fillStyle = `rgba(0, 0, 0, ${(0.16 * reachT).toFixed(3)})`;
+      c.beginPath();
+      c.ellipse(px, pyVis + 5 + lift * 8, 19 * (1 - lift * 0.2), 11.5 * (1 - lift * 0.2), 0, 0, Math.PI * 2);
+      c.fill();
+    }
+
+    const sAngle = Math.atan2(cy - sy, cx - sx);
+    const snx = -Math.sin(sAngle);
+    const sny = Math.cos(sAngle);
+    const enx = -Math.sin(armEndAngle);
+    const eny = Math.cos(armEndAngle);
+    const mnx = (snx + enx) * 0.5;
+    const mny = (sny + eny) * 0.5;
+    const mLen = Math.hypot(mnx, mny) || 1;
+    const mnux = mnx / mLen;
+    const mnuy = mny / mLen;
+
+    const sLx = sx + snx * rShoulder, sLy = sy + sny * rShoulder;
+    const sRx = sx - snx * rShoulder, sRy = sy - sny * rShoulder;
+    const mLx = cx + mnux * rMid,     mLy = cy + mnuy * rMid;
+    const mRx = cx - mnux * rMid,     mRy = cy - mnuy * rMid;
+    const wLx = px + enx * rWrist,    wLy = pyVis + eny * rWrist;
+    const wRx = px - enx * rWrist,    wRy = pyVis - eny * rWrist;
+
+    c.save();
+    c.translate(px, pyVis);
+    c.rotate(pawRot);
+    c.scale(squashX, squashY);
     c.beginPath();
-    c.ellipse(bodyX + side * 34, -1, 29, 14.5, 0, 0, Math.PI * 2);
+    c.ellipse(0, 2, pawRX + outlineW, pawRY + outlineW, 0, 0, Math.PI * 2);
+    c.fillStyle = outline;
     c.fill();
     c.restore();
 
-    c.beginPath();
-    c.moveTo(bodyX + side * 58, -98 + breath * 0.4);
-    c.bezierCurveTo(bodyX + side * 63, -74, bodyX + side * 59, -42, bodyX + side * 56, -22);
-    c.bezierCurveTo(bodyX + side * 62, -12, bodyX + side * 59, 3, bodyX + side * 42, 4);
-    c.bezierCurveTo(bodyX + side * 33, 5.5, bodyX + side * 23, 5.5, bodyX + side * 15, 3.5);
-    c.bezierCurveTo(bodyX + side * 8, 1, bodyX + side * 9, -12, bodyX + side * 13, -22);
-    c.bezierCurveTo(bodyX + side * 12, -46, bodyX + side * 11, -72, bodyX + side * 14, -88 + breath * 0.35);
-    c.strokeStyle = ink;
-    c.lineWidth = 3.2;
+    c.strokeStyle = outline;
+    c.lineWidth = outlineW * 2;
     c.lineCap = 'round';
-    c.lineJoin = 'round';
+    c.beginPath();
+    c.moveTo(sLx, sLy + (side === 1 ? (1 - reachT) * 14 : 0));
+    c.quadraticCurveTo(mLx, mLy, wLx, wLy);
+    c.moveTo(sRx, sRy + (side === -1 ? (1 - reachT) * 14 : 0));
+    c.quadraticCurveTo(mRx, mRy, wRx, wRy);
     c.stroke();
 
-    c.strokeStyle = ink;
-    c.lineWidth = 2.5;
-    for (const ox of [21, 32, 43]) {
+    const defineArmTube = () => {
       c.beginPath();
-      c.moveTo(bodyX + side * ox, -7.5);
-      c.quadraticCurveTo(bodyX + side * (ox + 1.2), -1.5, bodyX + side * ox, 3.6);
-      c.stroke();
-    }
-  }
-
-  function definePlumpPuppyHeadPath(c) {
-    c.beginPath();
-    c.moveTo(0, -92);
-    c.bezierCurveTo(60, -92, 108, -46, 112, 14);
-    c.bezierCurveTo(115, 58, 66, 84, 0, 84);
-    c.bezierCurveTo(-66, 84, -115, 58, -112, 14);
-    c.bezierCurveTo(-108, -46, -60, -92, 0, -92);
-    c.closePath();
-  }
-
-  // =========================================================================
-  // CHARACTER 1 (图1): 🕶️ 墨镜金毛 (Sunny)
-  // =========================================================================
-  function drawSunnyTail(c, bodyX, wagAngle, breath) {
-    const ink = '#181411';
-    c.save();
-    c.translate(bodyX - 66, -54 + breath * 0.3);
-    c.rotate(-0.18 + wagAngle);
-
-    const tailPath = () => {
-      c.beginPath();
-      c.moveTo(6, 12);
-      c.bezierCurveTo(-18, 16, -46, 2, -58, -22);
-      c.bezierCurveTo(-64, -34, -54, -44, -42, -36);
-      c.bezierCurveTo(-46, -44, -36, -50, -26, -40);
-      c.bezierCurveTo(-16, -28, -4, -10, 10, -6);
+      c.moveTo(sLx, sLy);
+      c.quadraticCurveTo(mLx, mLy, wLx, wLy);
+      c.lineTo(wRx, wRy);
+      c.quadraticCurveTo(mRx, mRy, sRx, sRy);
       c.closePath();
     };
 
-    tailPath();
-    const tg = c.createLinearGradient(0, 10, -56, -38);
-    tg.addColorStop(0, '#ECC564');
-    tg.addColorStop(0.6, '#F9DF86');
-    tg.addColorStop(1, '#FCEAA4');
-    c.fillStyle = tg;
+    if (lSpec.style === 'tricolor') {
+      c.save();
+      defineArmTube();
+      c.clip();
+
+      const kg = c.createLinearGradient(sx, sy, px, pyVis);
+      kg.addColorStop(0, lSpec.upperColor);
+      kg.addColorStop(0.46, lSpec.upperColor);
+      kg.addColorStop(0.54, lSpec.tanColor);
+      kg.addColorStop(1, lSpec.tanLight);
+      c.fillStyle = kg;
+      c.fill();
+
+      const midX = (sx + px) * 0.5 + bendX * 0.6;
+      const midY = (sy + pyVis) * 0.5 + bendY * 0.6;
+      c.save();
+      c.translate(midX, midY);
+      c.rotate(armEndAngle - Math.PI * 0.5);
+      c.fillStyle = lSpec.upperColor;
+      c.beginPath();
+      c.moveTo(-24, -10);
+      c.lineTo(-14, 4);
+      c.lineTo(-5, -4);
+      c.lineTo(5, 5);
+      c.lineTo(14, -3);
+      c.lineTo(24, 4);
+      c.lineTo(24, -22);
+      c.lineTo(-24, -22);
+      c.closePath();
+      c.fill();
+      c.restore();
+      c.restore();
+    } else {
+      const ag = c.createLinearGradient(sx, sy, px, pyVis);
+      if (lSpec.style === 'solid') {
+        ag.addColorStop(0, lSpec.armGrad[0]);
+        ag.addColorStop(0.75, lSpec.armGrad[1]);
+        ag.addColorStop(1, lSpec.armGrad[2]);
+      } else {
+        ag.addColorStop(0, lSpec.armGrad[0]);
+        ag.addColorStop(0.42, lSpec.armGrad[1]);
+        ag.addColorStop(0.68, lSpec.armGrad[2]);
+        ag.addColorStop(1, lSpec.armGrad[3]);
+      }
+      defineArmTube();
+      c.fillStyle = ag;
+      c.fill();
+    }
+
+    c.fillStyle = lSpec.shoulderCap;
+    c.beginPath();
+    c.ellipse(sx + side * 2, sy, rShoulder + 1, 16, 0, 0, Math.PI * 2);
     c.fill();
-    c.strokeStyle = ink;
-    c.lineWidth = 3.8;
-    c.lineJoin = 'round';
-    c.stroke();
 
-    c.strokeStyle = ink;
-    c.lineWidth = 2.4;
-    c.lineCap = 'round';
-    c.beginPath();
-    c.arc(-48, -32, 16, Math.PI * 0.88, Math.PI * 1.24);
-    c.stroke();
-    c.beginPath();
-    c.arc(-52, -34, 22, Math.PI * 0.92, Math.PI * 1.2);
-    c.stroke();
-
-    c.restore();
-  }
-
-  function drawSunnyCollar(c, bodyX, breath) {
-    const ink = '#181411';
-    const y = -124 + breath * 0.55;
     c.save();
-    c.translate(bodyX, 0);
-    c.beginPath();
-    c.moveTo(-62, y - 8);
-    c.quadraticCurveTo(0, y + 14, 62, y - 8);
-    c.quadraticCurveTo(66, y + 5, 56, y + 12);
-    c.quadraticCurveTo(0, y + 32, -56, y + 12);
-    c.quadraticCurveTo(-66, y + 5, -62, y - 8);
-    c.closePath();
+    c.translate(px, pyVis);
+    c.rotate(pawRot);
+    c.scale(squashX, squashY);
 
-    const cg = c.createLinearGradient(-60, y, 60, y + 24);
-    cg.addColorStop(0, '#F8B2C6');
-    cg.addColorStop(0.5, '#F398B2');
-    cg.addColorStop(1, '#E67F9D');
-    c.fillStyle = cg;
+    c.beginPath();
+    c.ellipse(0, 2, pawRX, pawRY, 0, 0, Math.PI * 2);
+    const pg = c.createRadialGradient(-3, -2, 2, 0, 2, pawRX);
+    pg.addColorStop(0, lSpec.pawGrad[0]);
+    pg.addColorStop(0.78, lSpec.pawGrad[1]);
+    pg.addColorStop(1, lSpec.pawGrad[2]);
+    c.fillStyle = pg;
     c.fill();
 
-    c.strokeStyle = ink;
-    c.lineWidth = 3.8;
-    c.lineJoin = 'round';
+    c.strokeStyle = lSpec.toeStroke;
+    c.lineWidth = lerp(2.5, 2.0, reachT);
+    c.lineCap = 'round';
+    const toeSpread = lerp(9.2, 5.6, reachT);
+    const toeTopY = lerp(1.5, 8.2, reachT);
+    const toeBotY = pawRY + 1.4;
+    c.beginPath();
+    c.moveTo(-toeSpread, toeTopY);
+    c.lineTo(-toeSpread * 1.04, toeBotY);
+    c.moveTo(0, toeTopY + 0.5);
+    c.lineTo(0, toeBotY + 0.5);
+    c.moveTo(toeSpread, toeTopY);
+    c.lineTo(toeSpread * 1.04, toeBotY);
     c.stroke();
+
+    if (lift > 0.28 && reachT > 0.25) {
+      const ba = clamp((lift - 0.28) * 1.6, 0, 0.85) * reachT;
+      c.fillStyle = `rgba(${lSpec.beanColor}, ${ba.toFixed(3)})`;
+      c.beginPath();
+      c.ellipse(0, 4.8, 4.6, 3.2, 0, 0, Math.PI * 2);
+      c.fill();
+      c.beginPath();
+      c.arc(-5.6, 10.2, 2.0, 0, Math.PI * 2);
+      c.arc(0, 11.4, 2.2, 0, Math.PI * 2);
+      c.arc(5.6, 10.2, 2.0, 0, Math.PI * 2);
+      c.fill();
+    }
+
+    c.restore();
     c.restore();
   }
 
-  function drawSunnyFloppyEar(c, side, kick) {
-    const ink = '#181411';
+  // =========================================================================
+  // SHARED COMPONENT 3: Neck Accessory (Collar / Bandana / Fur Ruff)
+  // =========================================================================
+  function drawMiniWhiteFlower(c, x, y, r) {
+    c.save();
+    c.translate(x, y);
+    c.fillStyle = '#FFFFFF';
+    for (let i = 0; i < 5; i++) {
+      const a = (i * Math.PI * 2) / 5;
+      c.beginPath();
+      c.ellipse(Math.cos(a) * r * 0.68, Math.sin(a) * r * 0.68, r * 0.54, r * 0.4, a, 0, Math.PI * 2);
+      c.fill();
+    }
+    c.fillStyle = '#FBE27A';
+    c.beginPath();
+    c.arc(0, 0, r * 0.36, 0, Math.PI * 2);
+    c.fill();
+    c.restore();
+  }
+
+  function drawSharedNeckAccessory(c, def, st, bodyX, breath) {
+    const nSpec = def.neck;
+    const y = -124 + breath * 0.55;
+
+    if (nSpec.type === 'collar') {
+      c.save();
+      c.translate(bodyX, 0);
+      c.beginPath();
+      c.moveTo(-62, y - 8);
+      c.quadraticCurveTo(0, y + 14, 62, y - 8);
+      c.quadraticCurveTo(66, y + 5, 56, y + 12);
+      c.quadraticCurveTo(0, y + 32, -56, y + 12);
+      c.quadraticCurveTo(-66, y + 5, -62, y - 8);
+      c.closePath();
+
+      const cg = c.createLinearGradient(-60, y, 60, y + 24);
+      cg.addColorStop(0, nSpec.grad[0]);
+      cg.addColorStop(0.5, nSpec.grad[1]);
+      cg.addColorStop(1, nSpec.grad[2]);
+      c.fillStyle = cg;
+      c.fill();
+      c.strokeStyle = def.outline;
+      c.lineWidth = def.outlineW;
+      c.lineJoin = 'round';
+      c.stroke();
+      c.restore();
+      return;
+    }
+
+    if (nSpec.type === 'floral-bandana') {
+      const outline = nSpec.outline;
+      const flutter = Math.sin(inputState.time * 3.1) * 0.05 + st.excitement * 0.12 * Math.sin(inputState.time * 12);
+      c.save();
+      c.translate(bodyX, y);
+
+      c.fillStyle = 'rgba(120, 78, 36, 0.14)';
+      c.beginPath();
+      c.ellipse(0, 18, 66, 14, 0, 0, Math.PI * 2);
+      c.fill();
+
+      c.save();
+      c.translate(56, 6);
+      c.rotate(flutter);
+
+      const upperLeaf = () => {
+        c.beginPath();
+        c.moveTo(0, -4);
+        c.bezierCurveTo(22, -16, 52, -8, 62, 10);
+        c.bezierCurveTo(44, 18, 20, 12, 0, 4);
+        c.closePath();
+      };
+      upperLeaf();
+      c.fillStyle = nSpec.leafColors[0];
+      c.fill();
+      c.save();
+      c.clip();
+      drawMiniWhiteFlower(c, 36, 3, 7.5);
+      c.restore();
+      upperLeaf();
+      c.strokeStyle = outline;
+      c.lineWidth = 2.4;
+      c.lineJoin = 'round';
+      c.stroke();
+
+      const lowerLeaf = () => {
+        c.beginPath();
+        c.moveTo(-4, 2);
+        c.bezierCurveTo(18, 12, 34, 34, 26, 54);
+        c.bezierCurveTo(6, 48, -6, 28, -8, 8);
+        c.closePath();
+      };
+      lowerLeaf();
+      c.fillStyle = nSpec.leafColors[1];
+      c.fill();
+      c.save();
+      c.clip();
+      drawMiniWhiteFlower(c, 12, 31, 8.0);
+      c.restore();
+      lowerLeaf();
+      c.strokeStyle = outline;
+      c.lineWidth = 2.4;
+      c.lineJoin = 'round';
+      c.stroke();
+      c.restore();
+
+      const scarfPath = () => {
+        c.beginPath();
+        c.moveTo(-68, -14);
+        c.quadraticCurveTo(-4, 12, 66, -10);
+        c.quadraticCurveTo(72, 6, 54, 16);
+        c.quadraticCurveTo(-6, 40, -62, 12);
+        c.quadraticCurveTo(-74, 0, -68, -14);
+        c.closePath();
+      };
+
+      c.save();
+      scarfPath();
+      const bg = c.createLinearGradient(-64, -10, 56, 32);
+      bg.addColorStop(0, nSpec.scarfGrad[0]);
+      bg.addColorStop(0.55, nSpec.scarfGrad[1]);
+      bg.addColorStop(1, nSpec.scarfGrad[2]);
+      c.fillStyle = bg;
+      c.fill();
+      c.clip();
+
+      c.strokeStyle = 'rgba(48, 84, 146, 0.32)';
+      c.lineWidth = 2;
+      c.beginPath();
+      c.moveTo(-50, 6);
+      c.quadraticCurveTo(0, 24, 46, 6);
+      c.stroke();
+
+      drawMiniWhiteFlower(c, -44, -1, 8.0);
+      drawMiniWhiteFlower(c, -12, 12, 8.6);
+      drawMiniWhiteFlower(c, 22, 11, 8.2);
+      drawMiniWhiteFlower(c, -28, 19, 6.5);
+      c.restore();
+
+      scarfPath();
+      c.strokeStyle = outline;
+      c.lineWidth = 2.5;
+      c.lineJoin = 'round';
+      c.stroke();
+
+      c.save();
+      c.translate(50, 4);
+      c.rotate(-0.15);
+      c.beginPath();
+      c.ellipse(0, 0, 10.5, 9.5, 0, 0, Math.PI * 2);
+      c.fillStyle = nSpec.leafColors[2];
+      c.fill();
+      c.strokeStyle = outline;
+      c.lineWidth = 2.4;
+      c.stroke();
+      c.restore();
+
+      c.restore();
+      return;
+    }
+
+    if (nSpec.type === 'fur-ruff-vchest') {
+      c.save();
+      c.translate(bodyX, 0);
+
+      const vY = y + 21;
+      c.fillStyle = nSpec.vChestColor;
+      c.beginPath();
+      c.moveTo(0, vY + 2);
+      c.quadraticCurveTo(22, vY - 3, 44, vY + 2);
+      c.lineTo(37, vY + 10);
+      c.lineTo(42, vY + 15);
+      c.lineTo(25, vY + 21);
+      c.lineTo(13, vY + 25);
+      c.lineTo(0, vY + 36);
+      c.lineTo(-13, vY + 25);
+      c.lineTo(-25, vY + 21);
+      c.lineTo(-42, vY + 15);
+      c.lineTo(-37, vY + 10);
+      c.lineTo(-44, vY + 2);
+      c.quadraticCurveTo(-22, vY - 3, 0, vY + 2);
+      c.closePath();
+      c.fill();
+
+      c.beginPath();
+      c.moveTo(-54, y - 2);
+      c.lineTo(-58, y + 8);
+      c.lineTo(-46, y + 12);
+      c.lineTo(-48, y + 20);
+      c.lineTo(-30, y + 18);
+      c.lineTo(-22, y + 25);
+      c.lineTo(-8, y + 20);
+      c.lineTo(0, y + 27);
+      c.lineTo(8, y + 20);
+      c.lineTo(22, y + 25);
+      c.lineTo(30, y + 18);
+      c.lineTo(48, y + 20);
+      c.lineTo(46, y + 12);
+      c.lineTo(58, y + 8);
+      c.lineTo(54, y - 2);
+      c.closePath();
+      c.fillStyle = nSpec.ruffColor;
+      c.fill();
+      c.restore();
+    }
+  }
+
+  // =========================================================================
+  // SHARED COMPONENT 4: Head Shell, Ears, Markings & Unified Expression Engine!
+  // =========================================================================
+  function defineSharedHeadSilhouette(c, shape) {
+    c.beginPath();
+    if (shape === 'fluffy-cheek') {
+      c.moveTo(0, -92);
+      c.bezierCurveTo(56, -92, 100, -52, 106, -6);
+      c.lineTo(115, 4);
+      c.lineTo(109, 10);
+      c.lineTo(117, 22);
+      c.lineTo(108, 27);
+      c.lineTo(112, 39);
+      c.bezierCurveTo(96, 68, 56, 84, 0, 84);
+      c.bezierCurveTo(-56, 84, -96, 68, -112, 39);
+      c.lineTo(-108, 27);
+      c.lineTo(-117, 22);
+      c.lineTo(-109, 10);
+      c.lineTo(-115, 4);
+      c.lineTo(-106, -6);
+      c.bezierCurveTo(-100, -52, -56, -92, 0, -92);
+    } else {
+      c.moveTo(0, -92);
+      c.bezierCurveTo(60, -92, 108, -46, 112, 14);
+      c.bezierCurveTo(115, 58, 66, 84, 0, 84);
+      c.bezierCurveTo(-66, 84, -115, 58, -112, 14);
+      c.bezierCurveTo(-108, -46, -60, -92, 0, -92);
+    }
+    c.closePath();
+  }
+
+  function drawSharedUprightEar(c, def, side, kick, pass) {
+    const hSpec = def.head;
+    c.save();
+    c.translate(side * 64, -51);
+    c.rotate(side * (0.23 + kick * 0.14));
+
+    const earPath = () => {
+      c.beginPath();
+      c.moveTo(side * -30, 22);
+      c.bezierCurveTo(side * -24, -31, side * 3, -74, side * 23, -66);
+      c.bezierCurveTo(side * 44, -56, side * 46, 4, side * 28, 38);
+      c.closePath();
+    };
+
+    if (pass === 'stroke') {
+      earPath();
+      c.strokeStyle = def.outline;
+      c.lineWidth = def.outlineW * 2;
+      c.lineJoin = 'round';
+      c.stroke();
+      c.restore();
+      return;
+    }
+
+    earPath();
+    const eg = c.createLinearGradient(0, -68, 0, 34);
+    eg.addColorStop(0, hSpec.earGrad[0]);
+    eg.addColorStop(0.55, hSpec.earGrad[1]);
+    eg.addColorStop(1, hSpec.earGrad[2]);
+    c.fillStyle = eg;
+    c.fill();
+
+    if (hSpec.earWhiteRim) {
+      c.beginPath();
+      c.moveTo(side * -14, 16);
+      c.bezierCurveTo(side * -8, -22, side * 6, -48, side * 19, -43);
+      c.bezierCurveTo(side * 32, -36, side * 32, 4, side * 20, 24);
+      c.closePath();
+      c.fillStyle = '#FFFDF9';
+      c.fill();
+    }
+
+    c.beginPath();
+    c.moveTo(side * -10, 15);
+    c.bezierCurveTo(side * -5, -18, side * 7, -40, side * 18, -36);
+    c.bezierCurveTo(side * 28, -30, side * 28, 4, side * 18, 21);
+    c.closePath();
+    if (Array.isArray(hSpec.earInner)) {
+      const ig = c.createLinearGradient(0, -40, 0, 20);
+      ig.addColorStop(0, hSpec.earInner[0]);
+      ig.addColorStop(1, hSpec.earInner[1]);
+      c.fillStyle = ig;
+    } else {
+      c.fillStyle = hSpec.earInner;
+    }
+    c.fill();
+
+    if (hSpec.earTuftStyle === 'white-lines') {
+      c.strokeStyle = '#FFFDF9';
+      c.lineWidth = 3.2;
+      c.lineCap = 'round';
+      for (const ox of [-4, 4, 11]) {
+        c.beginPath();
+        c.moveTo(side * ox, 18);
+        c.lineTo(side * (ox + 3), 6);
+        c.stroke();
+      }
+    } else if (hSpec.earTuftStyle === 'dark-spikes') {
+      c.fillStyle = hSpec.earGrad[0];
+      c.beginPath();
+      c.moveTo(side * -14, 18);
+      c.lineTo(side * -5, 6);
+      c.lineTo(side * 1, 14);
+      c.lineTo(side * 9, 5);
+      c.lineTo(side * 20, 22);
+      c.closePath();
+      c.fill();
+    }
+
+    c.restore();
+  }
+
+  function drawSharedFloppyEar(c, def, side, kick) {
+    const hSpec = def.head;
     c.save();
     c.translate(side * 96, -38);
     c.rotate(side * (0.1 + kick * 0.12));
@@ -1767,10 +2514,10 @@
 
     earPath();
     const eg = c.createLinearGradient(0, -26, side * 14, 72);
-    eg.addColorStop(0, '#F9DF86');
-    eg.addColorStop(0.36, '#F6CE72');
-    eg.addColorStop(0.74, '#ED9F4E');
-    eg.addColorStop(1, '#E28B38');
+    eg.addColorStop(0, hSpec.earGrad[0]);
+    eg.addColorStop(0.36, hSpec.earGrad[1]);
+    eg.addColorStop(0.74, hSpec.earGrad[2]);
+    eg.addColorStop(1, hSpec.earGrad[3]);
     c.fillStyle = eg;
     c.fill();
 
@@ -1793,8 +2540,8 @@
     c.bezierCurveTo(side * 14, -26, side * 34, -4, side * 38, 28);
     c.bezierCurveTo(side * 42, 58, side * 22, 76, side * 2, 70);
     c.bezierCurveTo(side * -14, 65, side * -18, 42, side * -14, 14);
-    c.strokeStyle = ink;
-    c.lineWidth = 3.8;
+    c.strokeStyle = def.outline;
+    c.lineWidth = def.outlineW;
     c.lineCap = 'round';
     c.lineJoin = 'round';
     c.stroke();
@@ -1802,146 +2549,126 @@
     c.restore();
   }
 
-  function drawSunnySquatPuppy(c, st, bodyX, breath) {
-    const ink = '#181411';
-    const lineW = 3.8;
-    const wag = Math.sin(st.tailPhase) * (0.14 + st.excitement * 0.25);
-
-    drawSunnyTail(c, bodyX, wag, breath);
-
-    for (const side of [-1, 1]) {
-      defineSquatHindThighPath(c, bodyX, side, breath);
-      c.fillStyle = '#EBC462';
-      c.fill();
-      c.strokeStyle = ink;
-      c.lineWidth = lineW;
-      c.lineJoin = 'round';
-      c.stroke();
-
-      defineTuckedHindPawPath(c, bodyX, side);
-      c.fillStyle = '#F7DC82';
-      c.fill();
-      c.strokeStyle = ink;
-      c.lineWidth = 3.4;
-      c.stroke();
-      drawHindPawToeCreases(c, bodyX, side, ink, 2.4);
-    }
-
+  // Shared Round Glossy Eye (Default Kuro-style eye for all non-sunglasses dogs!)
+  function drawSharedRoundGlossyEye(c, def, x, y, side, blinkAmount, lookX, lookY, squintClose) {
     c.save();
-    defineSquatTorsoPath(c, bodyX, breath);
-    const bodyGrad = c.createRadialGradient(bodyX, -96, 14, bodyX, -64, 90);
-    bodyGrad.addColorStop(0, '#FBE69B');
-    bodyGrad.addColorStop(0.6, '#F7DC80');
-    bodyGrad.addColorStop(1, '#EBC362');
-    c.fillStyle = bodyGrad;
-    c.fill();
+    c.translate(x, y);
 
-    c.save();
-    defineSquatTorsoPath(c, bodyX, breath);
-    c.clip();
-    const bellyGrad = c.createLinearGradient(bodyX, -112, bodyX, -16);
-    bellyGrad.addColorStop(0, '#F8B4C8');
-    bellyGrad.addColorStop(1, '#F29AB4');
-    c.fillStyle = bellyGrad;
-    c.beginPath();
-    c.ellipse(bodyX, -56 + breath * 0.25, 36, 52, 0, 0, Math.PI * 2);
-    c.fill();
-    c.strokeStyle = ink;
-    c.lineWidth = 2.8;
-    c.stroke();
-    c.restore();
-
-    defineSquatTorsoPath(c, bodyX, breath);
-    c.strokeStyle = ink;
-    c.lineWidth = lineW;
-    c.lineJoin = 'round';
-    c.stroke();
-    c.restore();
-  }
-
-  function drawSunnyCollarAndHead(c, st, bodyX, breath) {
-    const ink = '#181411';
-    const lineW = 3.8;
-
-    drawSunnyCollar(c, bodyX, breath);
-
-    // Head with 2.5D cursor turn & parallax
-    const headX = bodyX + st.lookX * 11;
-    const headY = -204 + breath * 0.85 + st.lookY * 6.5 + st.bounce * 4.5;
-    const headTilt = st.baseTilt + st.leanX * 0.002 + st.lookX * 0.11;
-
-    c.save();
-    c.translate(headX, headY);
-    c.rotate(headTilt);
-
-    const crownShiftX = -st.lookX * 3.5;
-    const defineCrownFluff = () => {
+    const totalClose = Math.max(blinkAmount, squintClose);
+    if (totalClose > 0.78) {
+      c.strokeStyle = def.face.eyeSocketRim ? '#FAF2E6' : '#322018';
+      c.lineWidth = 3.6;
+      c.lineCap = 'round';
       c.beginPath();
-      c.moveTo(-46 + crownShiftX, -72);
-      c.lineTo(-44 + crownShiftX, -84);
-      c.quadraticCurveTo(-33 + crownShiftX, -101, -18 + crownShiftX, -90);
-      c.quadraticCurveTo(-6 + crownShiftX, -105, 10 + crownShiftX, -91);
-      c.quadraticCurveTo(26 + crownShiftX, -101, 40 + crownShiftX, -84);
-      c.lineTo(42 + crownShiftX, -72);
-      c.closePath();
-    };
-
-    defineCrownFluff();
-    c.strokeStyle = ink;
-    c.lineWidth = lineW * 2;
-    c.lineJoin = 'round';
-    c.stroke();
-
-    definePlumpPuppyHeadPath(c);
-    c.strokeStyle = ink;
-    c.lineWidth = lineW * 2;
-    c.lineJoin = 'round';
-    c.stroke();
-
-    definePlumpPuppyHeadPath(c);
-    const hg = c.createRadialGradient(-18 + st.lookX * 10, -42 + st.lookY * 8, 16, 0, 6, 128);
-    hg.addColorStop(0, '#FDF0B4');
-    hg.addColorStop(0.55, '#F9DF85');
-    hg.addColorStop(1, '#ECC666');
-    c.fillStyle = hg;
-    c.fill();
-
-    defineCrownFluff();
-    c.fillStyle = '#FBE69A';
-    c.fill();
-
-    // Floppy ears shift slightly opposite to face turn for natural 3D head depth!
-    c.save();
-    c.translate(-st.lookX * 5.5, -st.lookY * 3.2);
-    drawSunnyFloppyEar(c, -1, st.leftEarKick);
-    drawSunnyFloppyEar(c, 1, st.rightEarKick);
-    c.restore();
-
-    const fx = st.lookX * 13.5;
-    const fy = st.lookY * 9.0;
-    c.save();
-    c.translate(fx, fy);
-
-    c.fillStyle = '#FFF3BF';
-    c.beginPath();
-    c.ellipse(0, 26, 46, 31, 0, 0, Math.PI * 2);
-    c.fill();
-
-    c.strokeStyle = '#EB8676';
-    c.lineWidth = 2.4;
-    c.lineCap = 'round';
-    for (const side of [-1, 1]) {
-      const bx = side * 56;
-      const by = 12;
-      for (const ox of [-6, 0, 6]) {
-        c.beginPath();
-        c.moveTo(bx + ox - 1.5, by + 3.5);
-        c.lineTo(bx + ox + 2, by - 3.5);
-        c.stroke();
-      }
+      c.moveTo(-13, 2);
+      c.quadraticCurveTo(0, 8, 13, 2);
+      c.stroke();
+      c.restore();
+      return;
     }
 
-    // Sunglasses sit slightly ahead of face plane in 2.5D + dynamic specular glint!
+    const sy = Math.max(0.15, 1 - totalClose * 0.92);
+    c.scale(1, sy);
+
+    // Sclera socket (with crisp white outer rim on dark fur, or soft warm socket on light fur)
+    if (def.face.eyeSocketRim) {
+      c.fillStyle = '#FFFFFF';
+      c.beginPath();
+      c.ellipse(side * 1.4, 1.0, 16.4, 17.4, 0, 0, Math.PI * 2);
+      c.fill();
+    } else {
+      c.fillStyle = '#FFFFFF';
+      c.beginPath();
+      c.ellipse(0, 0.5, 16.0, 17.0, 0, 0, Math.PI * 2);
+      c.fill();
+      c.strokeStyle = 'rgba(92, 58, 36, 0.42)';
+      c.lineWidth = 2.0;
+      c.stroke();
+    }
+
+    c.save();
+    c.beginPath();
+    if (def.face.eyeSocketRim) {
+      c.ellipse(side * 1.0, 0.8, 16.4, 17.4, 0, 0, Math.PI * 2);
+    } else {
+      c.ellipse(0, 0.5, 15.8, 16.8, 0, 0, Math.PI * 2);
+    }
+    c.clip();
+
+    const gx = lookX * 5.6;
+    const gy = lookY * 4.5;
+
+    c.fillStyle = '#120F12';
+    c.beginPath();
+    c.ellipse(gx, gy, 14.6, 15.8, 0, 0, Math.PI * 2);
+    c.fill();
+
+    const ig = c.createRadialGradient(gx, gy + 6, 1, gx, gy + 6, 10);
+    ig.addColorStop(0, 'rgba(116, 72, 44, 0.65)');
+    ig.addColorStop(1, 'rgba(18, 15, 18, 0)');
+    c.fillStyle = ig;
+    c.beginPath();
+    c.ellipse(gx, gy + 6, 10, 6.5, 0, 0, Math.PI * 2);
+    c.fill();
+
+    const hlX = lookX * 6.8;
+    const hlY = lookY * 5.4;
+    c.fillStyle = '#FFFFFF';
+    c.beginPath();
+    c.ellipse(hlX - 4.5, hlY - 5.5, 4.8, 4.2, -0.25, 0, Math.PI * 2);
+    c.fill();
+
+    c.beginPath();
+    c.arc(hlX + 4.8, hlY + 5.2, 2.0, 0, Math.PI * 2);
+    c.fill();
+
+    c.restore();
+    c.restore();
+  }
+
+  // Shared Happy Smiling Crescent Eye (◠ ◠ — unlocked when petting head!)
+  function drawSharedHappyCrescentEye(c, def, x, y, side, lookX, lookY, bounce) {
+    c.save();
+    c.translate(x + lookX * 2.5, y + lookY * 1.8 - bounce * 1.5);
+    c.rotate(lookX * 0.06);
+    c.lineCap = 'round';
+
+    if (def.face.eyeSocketRim) {
+      // On dark fur (e.g. Kuro), a single crisp warm-ivory crescent arc pops cleanly without double-ring artifacts
+      c.strokeStyle = def.outline;
+      c.lineWidth = 6.8;
+      c.beginPath();
+      c.arc(0, 10, 16.5, Math.PI * 1.14, Math.PI * 1.86);
+      c.stroke();
+
+      c.strokeStyle = '#FFF8EE';
+      c.lineWidth = 4.2;
+      c.beginPath();
+      c.arc(0, 10, 16.5, Math.PI * 1.14, Math.PI * 1.86);
+      c.stroke();
+
+      c.lineWidth = 2.6;
+      c.beginPath();
+      c.moveTo(side * 13.5, 3);
+      c.lineTo(side * 18.2, 5.4);
+      c.stroke();
+    } else {
+      c.strokeStyle = '#2B1D17';
+      c.lineWidth = 4.6;
+      c.beginPath();
+      c.arc(0, 10, 16.5, Math.PI * 1.14, Math.PI * 1.86);
+      c.stroke();
+
+      c.lineWidth = 2.8;
+      c.beginPath();
+      c.moveTo(side * 13.5, 3);
+      c.lineTo(side * 18.5, 5.5);
+      c.stroke();
+    }
+    c.restore();
+  }
+
+  function drawSharedSunglasses(c, st) {
     c.save();
     c.translate(st.lookX * 3.0, st.lookY * 1.8);
     const sgY = -12 - st.bounce * 1.5;
@@ -2001,1071 +2728,404 @@
       c.restore();
     }
     c.restore();
-
-    c.strokeStyle = ink;
-    c.lineWidth = 3.4;
-    c.lineCap = 'round';
-    c.lineJoin = 'round';
-    c.beginPath();
-    c.moveTo(0, 25);
-    c.lineTo(0, 32);
-    c.moveTo(-24, 33);
-    c.quadraticCurveTo(-12, 41, 0, 32);
-    c.quadraticCurveTo(13, 41, 25, 31);
-    c.stroke();
-
-    const boneWiggle = Math.sin(inputState.time * 4.2) * 0.06 + st.excitement * 0.14;
-    c.save();
-    c.translate(-11, 34);
-    c.rotate(-0.48 + boneWiggle);
-
-    c.beginPath();
-    c.moveTo(2, -3.4);
-    c.lineTo(-22, -3.4);
-    c.bezierCurveTo(-24, -10.5, -33, -9.5, -31.5, -2.2);
-    c.quadraticCurveTo(-29.5, 0, -31.5, 2.2);
-    c.bezierCurveTo(-33, 9.5, -24, 10.5, -22, 3.4);
-    c.lineTo(2, 3.4);
-    c.quadraticCurveTo(4.5, 0, 2, -3.4);
-    c.closePath();
-    c.fillStyle = '#FFFFFF';
-    c.fill();
-    c.strokeStyle = ink;
-    c.lineWidth = 3.0;
-    c.lineJoin = 'round';
-    c.stroke();
-
-    c.strokeStyle = ink;
-    c.lineWidth = 2.0;
-    c.lineCap = 'round';
-    c.beginPath();
-    c.arc(-28, 1, 11, Math.PI * 0.72, Math.PI * 1.18);
-    c.stroke();
-    c.beginPath();
-    c.arc(-30, 2, 15, Math.PI * 0.78, Math.PI * 1.12);
-    c.stroke();
-    c.restore();
-
-    c.beginPath();
-    c.ellipse(0, 16, 15.5, 10.5, 0, 0, Math.PI * 2);
-    c.fillStyle = '#141210';
-    c.fill();
-
-    c.fillStyle = 'rgba(255, 255, 255, 0.72)';
-    c.beginPath();
-    c.ellipse(-4.5, 12.5, 4.2, 2.1, -0.25, 0, Math.PI * 2);
-    c.fill();
-
-    c.restore();
-    c.restore();
   }
 
-  // =========================================================================
-  // CHARACTER 2 (图2): 🌼 蓝巾笑柴 (Daisy)
-  // =========================================================================
-  function drawMiniWhiteFlower(c, x, y, r) {
-    c.save();
-    c.translate(x, y);
-    c.fillStyle = '#FFFFFF';
-    for (let i = 0; i < 5; i++) {
-      const a = (i * Math.PI * 2) / 5;
-      c.beginPath();
-      c.ellipse(Math.cos(a) * r * 0.68, Math.sin(a) * r * 0.68, r * 0.54, r * 0.4, a, 0, Math.PI * 2);
-      c.fill();
-    }
-    c.fillStyle = '#FBE27A';
-    c.beginPath();
-    c.arc(0, 0, r * 0.36, 0, Math.PI * 2);
-    c.fill();
-    c.restore();
-  }
+  // Unified Expression Renderer:
+  //   happyBlend = 0 -> Default Kuro calm/sweet expression (round glossy eyes + closed ω smile)
+  //   happyBlend = 1 -> Petted Daisy happy expression (crescent eyes + rosy blush + open tongue laugh!)
+  //   (Sunny keeps sunglasses + mouth bone at all times, while still getting happy blush + open tongue laugh!)
+  function drawSharedFaceExpression(c, def, st) {
+    const fSpec = def.face;
+    const hb = st.happyBlend;
+    const fx = st.lookX * 13.0;
+    const fy = st.lookY * 8.8;
 
-  function drawDaisyTail(c, bodyX, wagAngle, breath) {
-    const outline = '#7A5134';
-    c.save();
-    c.translate(bodyX - 68, -56 + breath * 0.3);
-    c.rotate(-0.1 + wagAngle);
-
-    const tailPath = () => {
-      c.beginPath();
-      c.moveTo(8, 18);
-      c.bezierCurveTo(-18, 22, -44, 0, -42, -32);
-      c.bezierCurveTo(-40, -56, -18, -66, 0, -52);
-      c.bezierCurveTo(12, -42, 16, -16, 8, 18);
-      c.closePath();
-    };
-
-    tailPath();
-    const tg = c.createLinearGradient(-38, -52, 8, 14);
-    tg.addColorStop(0, '#F7BD6B');
-    tg.addColorStop(0.55, '#EC9846');
-    tg.addColorStop(1, '#DC8232');
-    c.fillStyle = tg;
-    c.fill();
-
-    c.save();
-    tailPath();
-    c.clip();
-    c.fillStyle = 'rgba(255, 250, 240, 0.55)';
-    c.beginPath();
-    c.ellipse(-22, -44, 18, 14, -0.3, 0, Math.PI * 2);
-    c.fill();
-    c.restore();
-
-    tailPath();
-    c.strokeStyle = outline;
-    c.lineWidth = 2.8;
-    c.lineJoin = 'round';
-    c.stroke();
-
-    c.restore();
-  }
-
-  function drawDaisyBandana(c, st, bodyX, breath) {
-    const outline = '#5B4A5E';
-    const y = -124 + breath * 0.55;
-    const flutter = Math.sin(inputState.time * 3.1) * 0.05 + st.excitement * 0.12 * Math.sin(inputState.time * 12);
-
-    c.save();
-    c.translate(bodyX, y);
-
-    c.fillStyle = 'rgba(120, 78, 36, 0.14)';
-    c.beginPath();
-    c.ellipse(0, 18, 66, 14, 0, 0, Math.PI * 2);
-    c.fill();
-
-    c.save();
-    c.translate(56, 6);
-    c.rotate(flutter);
-
-    const upperLeaf = () => {
-      c.beginPath();
-      c.moveTo(0, -4);
-      c.bezierCurveTo(22, -16, 52, -8, 62, 10);
-      c.bezierCurveTo(44, 18, 20, 12, 0, 4);
-      c.closePath();
-    };
-    upperLeaf();
-    c.fillStyle = '#7DA9EA';
-    c.fill();
-    c.save();
-    c.clip();
-    drawMiniWhiteFlower(c, 36, 3, 7.5);
-    c.restore();
-    upperLeaf();
-    c.strokeStyle = outline;
-    c.lineWidth = 2.4;
-    c.lineJoin = 'round';
-    c.stroke();
-
-    const lowerLeaf = () => {
-      c.beginPath();
-      c.moveTo(-4, 2);
-      c.bezierCurveTo(18, 12, 34, 34, 26, 54);
-      c.bezierCurveTo(6, 48, -6, 28, -8, 8);
-      c.closePath();
-    };
-    lowerLeaf();
-    c.fillStyle = '#6B99DF';
-    c.fill();
-    c.save();
-    c.clip();
-    drawMiniWhiteFlower(c, 12, 31, 8.0);
-    c.restore();
-    lowerLeaf();
-    c.strokeStyle = outline;
-    c.lineWidth = 2.4;
-    c.lineJoin = 'round';
-    c.stroke();
-
-    c.restore();
-
-    const scarfPath = () => {
-      c.beginPath();
-      c.moveTo(-68, -14);
-      c.quadraticCurveTo(-4, 12, 66, -10);
-      c.quadraticCurveTo(72, 6, 54, 16);
-      c.quadraticCurveTo(-6, 40, -62, 12);
-      c.quadraticCurveTo(-74, 0, -68, -14);
-      c.closePath();
-    };
-
-    c.save();
-    scarfPath();
-    const bg = c.createLinearGradient(-64, -10, 56, 32);
-    bg.addColorStop(0, '#89B5F0');
-    bg.addColorStop(0.55, '#72A0E4');
-    bg.addColorStop(1, '#5D8CD4');
-    c.fillStyle = bg;
-    c.fill();
-    c.clip();
-
-    c.strokeStyle = 'rgba(48, 84, 146, 0.32)';
-    c.lineWidth = 2;
-    c.beginPath();
-    c.moveTo(-50, 6);
-    c.quadraticCurveTo(0, 24, 46, 6);
-    c.stroke();
-
-    drawMiniWhiteFlower(c, -44, -1, 8.0);
-    drawMiniWhiteFlower(c, -12, 12, 8.6);
-    drawMiniWhiteFlower(c, 22, 11, 8.2);
-    drawMiniWhiteFlower(c, -28, 19, 6.5);
-    c.restore();
-
-    scarfPath();
-    c.strokeStyle = outline;
-    c.lineWidth = 2.5;
-    c.lineJoin = 'round';
-    c.stroke();
-
-    c.save();
-    c.translate(50, 4);
-    c.rotate(-0.15);
-    c.beginPath();
-    c.ellipse(0, 0, 10.5, 9.5, 0, 0, Math.PI * 2);
-    c.fillStyle = '#7BA8E8';
-    c.fill();
-    c.strokeStyle = outline;
-    c.lineWidth = 2.4;
-    c.stroke();
-    c.restore();
-
-    c.restore();
-  }
-
-  function drawDaisyEar(c, side, kick, pass) {
-    const outline = '#7A5134';
-    c.save();
-    c.translate(side * 64, -50);
-    c.rotate(side * (0.22 + kick * 0.14));
-
-    const earPath = () => {
-      c.beginPath();
-      c.moveTo(side * -30, 22);
-      c.bezierCurveTo(side * -24, -32, side * 2, -74, side * 22, -66);
-      c.bezierCurveTo(side * 44, -56, side * 46, 4, side * 28, 38);
-      c.closePath();
-    };
-
-    if (pass === 'stroke') {
-      earPath();
-      c.strokeStyle = outline;
-      c.lineWidth = 5.6;
-      c.lineJoin = 'round';
-      c.stroke();
-      c.restore();
-      return;
-    }
-
-    earPath();
-    const eg = c.createLinearGradient(0, -68, 0, 34);
-    eg.addColorStop(0, '#F7BD6C');
-    eg.addColorStop(0.55, '#EC9846');
-    eg.addColorStop(1, '#DF8635');
-    c.fillStyle = eg;
-    c.fill();
-
-    c.beginPath();
-    c.moveTo(side * -14, 16);
-    c.bezierCurveTo(side * -8, -22, side * 6, -48, side * 19, -43);
-    c.bezierCurveTo(side * 32, -36, side * 32, 4, side * 20, 24);
-    c.closePath();
-    c.fillStyle = '#FFFDF9';
-    c.fill();
-
-    c.beginPath();
-    c.moveTo(side * -7, 14);
-    c.bezierCurveTo(side * -3, -14, side * 8, -34, side * 17, -30);
-    c.bezierCurveTo(side * 26, -24, side * 26, 4, side * 16, 20);
-    c.closePath();
-    c.fillStyle = '#E8A5AC';
-    c.fill();
-
-    c.strokeStyle = '#FFFDF9';
-    c.lineWidth = 3.2;
-    c.lineCap = 'round';
-    for (const ox of [-4, 4, 11]) {
-      c.beginPath();
-      c.moveTo(side * ox, 18);
-      c.lineTo(side * (ox + 3), 6);
-      c.stroke();
-    }
-
-    c.restore();
-  }
-
-  function drawDaisySquatPuppy(c, st, bodyX, breath) {
-    const outline = '#7A5134';
-    const lineW = 2.8;
-    const wag = Math.sin(st.tailPhase) * (0.14 + st.excitement * 0.25);
-
-    drawDaisyTail(c, bodyX, wag, breath);
-
-    for (const side of [-1, 1]) {
-      defineSquatHindThighPath(c, bodyX, side, breath);
-      c.fillStyle = '#E69140';
-      c.fill();
-      c.strokeStyle = outline;
-      c.lineWidth = lineW;
-      c.stroke();
-
-      defineTuckedHindPawPath(c, bodyX, side);
-      c.fillStyle = '#FFFDF9';
-      c.fill();
-      c.strokeStyle = outline;
-      c.lineWidth = 2.5;
-      c.stroke();
-      drawHindPawToeCreases(c, bodyX, side, outline, 2.0);
-    }
-
-    c.save();
-    defineSquatTorsoPath(c, bodyX, breath);
-    const bodyGrad = c.createRadialGradient(bodyX, -92, 16, bodyX, -64, 88);
-    bodyGrad.addColorStop(0, '#F8BE6E');
-    bodyGrad.addColorStop(0.6, '#EC9846');
-    bodyGrad.addColorStop(1, '#DC8332');
-    c.fillStyle = bodyGrad;
-    c.fill();
-
-    c.save();
-    defineSquatTorsoPath(c, bodyX, breath);
-    c.clip();
-    const bellyGrad = c.createLinearGradient(bodyX, -116, bodyX, -16);
-    bellyGrad.addColorStop(0, '#FFFFFF');
-    bellyGrad.addColorStop(0.8, '#FFFDF9');
-    bellyGrad.addColorStop(1, '#F5ECE0');
-    c.fillStyle = bellyGrad;
-    c.beginPath();
-    c.ellipse(bodyX, -56 + breath * 0.25, 44, 58, 0, 0, Math.PI * 2);
-    c.fill();
-    c.restore();
-
-    defineSquatTorsoPath(c, bodyX, breath);
-    c.strokeStyle = outline;
-    c.lineWidth = lineW;
-    c.stroke();
-    c.restore();
-  }
-
-  function drawDaisyBandanaAndHead(c, st, bodyX, breath) {
-    const outline = '#7A5134';
-    const lineW = 2.8;
-
-    drawDaisyBandana(c, st, bodyX, breath);
-
-    const headX = bodyX + st.lookX * 11;
-    const headY = -204 + breath * 0.85 + st.lookY * 6.5 + st.bounce * 4.5;
-    const headTilt = st.baseTilt + st.leanX * 0.002 + st.lookX * 0.11;
-
-    c.save();
-    c.translate(headX, headY);
-    c.rotate(headTilt);
-
-    // Ears counter-shift slightly in 2.5D depth
-    c.save();
-    c.translate(-st.lookX * 5.5, -st.lookY * 3.2);
-    drawDaisyEar(c, -1, st.leftEarKick, 'stroke');
-    drawDaisyEar(c, 1, st.rightEarKick, 'stroke');
-    c.restore();
-
-    definePlumpPuppyHeadPath(c);
-    c.strokeStyle = outline;
-    c.lineWidth = lineW * 2;
-    c.lineJoin = 'round';
-    c.stroke();
-
-    c.save();
-    c.translate(-st.lookX * 5.5, -st.lookY * 3.2);
-    drawDaisyEar(c, -1, st.leftEarKick, 'fill');
-    drawDaisyEar(c, 1, st.rightEarKick, 'fill');
-    c.restore();
-
-    definePlumpPuppyHeadPath(c);
-    const hg = c.createRadialGradient(-16 + st.lookX * 10, -48 + st.lookY * 8, 16, 0, 4, 130);
-    hg.addColorStop(0, '#F9C478');
-    hg.addColorStop(0.55, '#EE9C4B');
-    hg.addColorStop(1, '#DF8636');
-    c.fillStyle = hg;
-    c.fill();
-
-    c.save();
-    definePlumpPuppyHeadPath(c);
-    c.clip();
-
-    const mx = st.lookX * 8.5;
-    const my = st.lookY * 5.5;
-    c.beginPath();
-    c.moveTo(mx, -10 + my);
-    c.bezierCurveTo(20 + mx, -34 + my, 72 + mx, -30 + my, 124, 14 + my * 0.5);
-    c.lineTo(126, 102);
-    c.lineTo(-126, 102);
-    c.lineTo(-124, 14 + my * 0.5);
-    c.bezierCurveTo(-72 + mx, -30 + my, -20 + mx, -34 + my, mx, -10 + my);
-    c.closePath();
-
-    const fg = c.createLinearGradient(0, -30 + my, 0, 86);
-    fg.addColorStop(0, '#FFFFFF');
-    fg.addColorStop(0.82, '#FFFDF9');
-    fg.addColorStop(1, '#F6EEE3');
-    c.fillStyle = fg;
-    c.fill();
-
-    c.fillStyle = 'rgba(255, 253, 248, 0.92)';
-    c.beginPath();
-    c.ellipse(-34 + mx * 1.15, -40 + my * 1.15, 12, 7.5, -0.22, 0, Math.PI * 2);
-    c.fill();
-    c.beginPath();
-    c.ellipse(34 + mx * 1.15, -40 + my * 1.15, 12, 7.5, 0.22, 0, Math.PI * 2);
-    c.fill();
-
-    c.strokeStyle = 'rgba(255, 238, 198, 0.55)';
-    c.lineWidth = 4.5;
-    c.lineCap = 'round';
-    c.beginPath();
-    c.arc(mx * 0.5, -10 + my * 0.5, 74, -Math.PI * 0.66, -Math.PI * 0.34);
-    c.stroke();
-    c.restore();
-
-    const fx = st.lookX * 13.5;
-    const fy = st.lookY * 9.0;
     c.save();
     c.translate(fx, fy);
 
-    for (const side of [-1, 1]) {
-      const bx = side * 64;
-      const by = 18;
-      const bg = c.createRadialGradient(bx, by, 2, bx, by, 26);
-      bg.addColorStop(0, 'rgba(249, 152, 172, 0.72)');
-      bg.addColorStop(1, 'rgba(249, 152, 172, 0)');
-      c.fillStyle = bg;
+    // 1. Eyebrow Dots (豆眉 for Kuro & Daisy)
+    if (def.head.browDots) {
+      const bd = def.head.browDots;
+      const liftY = -hb * 3.5;
+      c.fillStyle = bd.color;
       c.beginPath();
-      c.ellipse(bx, by, 26, 16, side * 0.1, 0, Math.PI * 2);
+      c.ellipse(-bd.x + st.lookX * 1.5, bd.y + st.lookY * 1.2 + liftY, bd.rx, bd.ry, bd.tilt, 0, Math.PI * 2);
+      c.fill();
+      c.beginPath();
+      c.ellipse(bd.x + st.lookX * 1.5, bd.y + st.lookY * 1.2 + liftY, bd.rx, bd.ry, -bd.tilt, 0, Math.PI * 2);
+      c.fill();
+    }
+
+    // 2. Cheek Blush (blooms rosy Daisy blush & /// strokes when petted on head for ALL characters!)
+    if (hb > 0.03) {
+      c.save();
+      c.globalAlpha = hb;
+      for (const side of [-1, 1]) {
+        const bx = side * 63;
+        const by = 19;
+        const bg = c.createRadialGradient(bx, by, 2, bx, by, 26);
+        bg.addColorStop(0, 'rgba(252, 142, 166, 0.8)');
+        bg.addColorStop(1, 'rgba(252, 142, 166, 0)');
+        c.fillStyle = bg;
+        c.beginPath();
+        c.ellipse(bx, by, 26, 16, side * 0.08, 0, Math.PI * 2);
+        c.fill();
+
+        c.strokeStyle = 'rgba(228, 104, 130, 0.65)';
+        c.lineWidth = 2.1;
+        c.lineCap = 'round';
+        for (const ox of [-6, 0, 6]) {
+          c.beginPath();
+          c.moveTo(bx + ox - 2, by + 3.5);
+          c.lineTo(bx + ox + 2.5, by - 3.5);
+          c.stroke();
+        }
+      }
+      c.restore();
+    }
+
+    // 3. Eyes (Sunglasses for Sunny; Round Glossy <-> Happy Crescent for Daisy & Kuro!)
+    if (fSpec.sunglasses) {
+      drawSharedSunglasses(c, st);
+    } else {
+      const blinkAmount = st.blinkProgress > 0 ? Math.sin(st.blinkProgress) : 0;
+      if (hb < 0.5) {
+        const squint = hb * 1.65;
+        drawSharedRoundGlossyEye(c, def, -40, -3, -1, blinkAmount, st.lookX, st.lookY, squint);
+        drawSharedRoundGlossyEye(c, def, 40, -3, 1, blinkAmount, st.lookX, st.lookY, squint);
+      } else {
+        drawSharedHappyCrescentEye(c, def, -41, -7, -1, st.lookX, st.lookY, st.bounce);
+        drawSharedHappyCrescentEye(c, def, 41, -7, 1, st.lookX, st.lookY, st.bounce);
+      }
+    }
+
+    // 4. Subtle Muzzle Mound
+    if (!fSpec.sunglasses) {
+      c.fillStyle = 'rgba(218, 198, 176, 0.28)';
+      c.beginPath();
+      c.ellipse(0, 25, 20, 13, 0, 0, Math.PI * 2);
+      c.fill();
+    }
+
+    // 5. Mouth Morph: Sweet Closed ω Smile (hb = 0) <-> Daisy's Open Laugh + Bouncy Pink Tongue (hb = 1)!
+    const pant = Math.sin(inputState.time * 5.0) * 1.8 + st.excitement * 4.2;
+    const lipW = lerp(20, 29, hb);
+    const lipCornerY = lerp(29.5, 20, hb);
+    const lipCenterY = lerp(26, 22, hb);
+
+    if (hb > 0.08) {
+      const openDepth = hb * (40 + pant);
+      const mouthPath = () => {
+        c.beginPath();
+        c.moveTo(-lipW, lipCornerY + 2);
+        c.quadraticCurveTo(0, lipCenterY + 8 * hb, lipW, lipCornerY + 2);
+        c.bezierCurveTo(
+          lipW * 0.9,
+          lipCenterY + openDepth * 0.72,
+          lipW * 0.48,
+          lipCenterY + openDepth,
+          0,
+          lipCenterY + openDepth
+        );
+        c.bezierCurveTo(
+          -lipW * 0.48,
+          lipCenterY + openDepth,
+          -lipW * 0.9,
+          lipCenterY + openDepth * 0.72,
+          -lipW,
+          lipCornerY + 2
+        );
+        c.closePath();
+      };
+
+      c.save();
+      mouthPath();
+      c.fillStyle = '#4B2424';
       c.fill();
 
-      c.strokeStyle = 'rgba(228, 114, 136, 0.55)';
+      // Bouncing rosy-pink puppy tongue inside open laugh!
+      c.save();
+      c.clip();
+      const tongueBottom = lipCenterY + openDepth;
+      const tg = c.createLinearGradient(0, lipCenterY + 6, 0, tongueBottom + 4);
+      tg.addColorStop(0, '#E87A8A');
+      tg.addColorStop(0.35, '#F797A6');
+      tg.addColorStop(1, '#FBAAB7');
+      c.fillStyle = tg;
+      c.beginPath();
+      c.ellipse(0, lipCenterY + openDepth * 0.62, 18 * hb, 21 * hb, 0, 0, Math.PI * 2);
+      c.fill();
+
+      c.strokeStyle = '#D96D7D';
       c.lineWidth = 2.0;
       c.lineCap = 'round';
-      for (const ox of [-6, 0, 6]) {
+      c.beginPath();
+      c.moveTo(0, lipCenterY + 8 * hb);
+      c.lineTo(0, lipCenterY + openDepth * 0.68);
+      c.stroke();
+      c.restore();
+
+      mouthPath();
+      c.strokeStyle = fSpec.lipStroke;
+      c.lineWidth = 3.0;
+      c.lineJoin = 'round';
+      c.stroke();
+      c.restore();
+    }
+
+    // Upper ω lip line (shared seamlessly across calm & laughing states!)
+    c.strokeStyle = fSpec.lipStroke;
+    c.lineWidth = 3.1;
+    c.lineCap = 'round';
+    c.lineJoin = 'round';
+    c.beginPath();
+    c.moveTo(0, 19);
+    c.lineTo(0, lipCenterY);
+    c.moveTo(-lipW - 1, lipCornerY);
+    c.bezierCurveTo(-lipW * 0.68, lipCenterY + 8, -5, lipCenterY + 6, 0, lipCenterY);
+    c.bezierCurveTo(5, lipCenterY + 6, lipW * 0.68, lipCenterY + 8, lipW + 1, lipCornerY - 0.5);
+    c.stroke();
+
+    // 6. Sunny's Signature Mini White Bone (stays clenched at left mouth corner even while laughing!)
+    if (fSpec.mouthBone) {
+      const boneWiggle = Math.sin(inputState.time * 4.2) * 0.06 + st.excitement * 0.14;
+      const boneX = lerp(-12, -23, hb);
+      const boneY = lerp(31, 24, hb);
+      c.save();
+      c.translate(boneX, boneY);
+      c.rotate(-0.46 + hb * 0.1 + boneWiggle);
+
+      c.beginPath();
+      c.moveTo(2, -3.4);
+      c.lineTo(-22, -3.4);
+      c.bezierCurveTo(-24, -10.5, -33, -9.5, -31.5, -2.2);
+      c.quadraticCurveTo(-29.5, 0, -31.5, 2.2);
+      c.bezierCurveTo(-33, 9.5, -24, 10.5, -22, 3.4);
+      c.lineTo(2, 3.4);
+      c.quadraticCurveTo(4.5, 0, 2, -3.4);
+      c.closePath();
+      c.fillStyle = '#FFFFFF';
+      c.fill();
+      c.strokeStyle = def.outline;
+      c.lineWidth = 3.0;
+      c.lineJoin = 'round';
+      c.stroke();
+
+      c.lineWidth = 2.0;
+      c.lineCap = 'round';
+      c.beginPath();
+      c.arc(-28, 1, 11, Math.PI * 0.72, Math.PI * 1.18);
+      c.stroke();
+      c.beginPath();
+      c.arc(-30, 2, 15, Math.PI * 0.78, Math.PI * 1.12);
+      c.stroke();
+      c.restore();
+    }
+
+    // 7. Whiskers
+    if (fSpec.whiskers === 'short') {
+      c.strokeStyle = 'rgba(42, 34, 28, 0.52)';
+      c.lineWidth = 1.5;
+      for (const side of [-1, 1]) {
         c.beginPath();
-        c.moveTo(bx + ox - 2, by + 3.5);
-        c.lineTo(bx + ox + 2.5, by - 3.5);
+        c.moveTo(side * 24, 18);
+        c.lineTo(side * 34, 16);
+        c.moveTo(side * 26, 24);
+        c.lineTo(side * 37, 24);
+        c.stroke();
+      }
+    } else if (fSpec.whiskers === 'curved') {
+      c.strokeStyle = 'rgba(110, 82, 66, 0.38)';
+      c.lineWidth = 1.4;
+      for (const side of [-1, 1]) {
+        c.beginPath();
+        c.moveTo(side * 23, 16);
+        c.quadraticCurveTo(side * 38, 14, side * 50, 18);
+        c.moveTo(side * 25, 22);
+        c.quadraticCurveTo(side * 40, 22, side * 52, 26);
         c.stroke();
       }
     }
 
-    for (const side of [-1, 1]) {
-      c.save();
-      c.translate(side * 42 + st.lookX * 2.5, -8 + st.lookY * 1.8 - st.bounce * 1.5);
-      c.rotate(st.lookX * 0.06);
-      c.strokeStyle = '#322018';
-      c.lineWidth = 4.8;
-      c.lineCap = 'round';
-      c.beginPath();
-      c.arc(0, 9, 17, Math.PI * 1.14, Math.PI * 1.86);
-      c.stroke();
-
-      c.lineWidth = 3.0;
-      c.beginPath();
-      c.moveTo(side * 14, 2);
-      c.lineTo(side * 19, 4.5);
-      c.stroke();
-      c.restore();
-    }
-
-    const pant = Math.sin(inputState.time * 4.8) * 1.6 + st.excitement * 4.8;
-    const mouthPath = () => {
-      c.beginPath();
-      c.moveTo(-29, 20);
-      c.quadraticCurveTo(0, 30, 29, 20);
-      c.bezierCurveTo(26, 50 + pant, 14, 62 + pant, 0, 62 + pant);
-      c.bezierCurveTo(-14, 62 + pant, -26, 50 + pant, -29, 20);
+    // 8. Glossy Puppy Nose
+    c.beginPath();
+    if (fSpec.sunglasses) {
+      c.ellipse(0, 14, 15.0, 10.0, 0, 0, Math.PI * 2);
+    } else {
+      c.moveTo(0, 6.5);
+      c.bezierCurveTo(11.5, 6, 14.5, 12.5, 8.2, 18);
+      c.quadraticCurveTo(0, 21.5, -8.2, 18);
+      c.bezierCurveTo(-14.5, 12.5, -11.5, 6, 0, 6.5);
       c.closePath();
-    };
-
-    c.save();
-    mouthPath();
-    c.fillStyle = '#4B2424';
-    c.fill();
-
-    c.save();
-    c.clip();
-    const tg = c.createLinearGradient(0, 28, 0, 64 + pant);
-    tg.addColorStop(0, '#E87A8A');
-    tg.addColorStop(0.35, '#F797A6');
-    tg.addColorStop(1, '#FBAAB7');
-    c.fillStyle = tg;
-    c.beginPath();
-    c.ellipse(0, 46 + pant * 0.85, 18.5, 21, 0, 0, Math.PI * 2);
-    c.fill();
-
-    c.strokeStyle = '#D96D7D';
-    c.lineWidth = 2.0;
-    c.lineCap = 'round';
-    c.beginPath();
-    c.moveTo(0, 30 + pant * 0.3);
-    c.lineTo(0, 48 + pant * 0.7);
-    c.stroke();
-    c.restore();
-
-    mouthPath();
-    c.strokeStyle = '#3B231A';
-    c.lineWidth = 3.0;
-    c.lineJoin = 'round';
-    c.stroke();
-    c.restore();
-
-    c.strokeStyle = '#3B231A';
-    c.lineWidth = 3.2;
-    c.lineCap = 'round';
-    c.beginPath();
-    c.moveTo(0, 14);
-    c.lineTo(0, 22);
-    c.moveTo(0, 22);
-    c.bezierCurveTo(-8, 30, -24, 29, -32, 18);
-    c.moveTo(0, 22);
-    c.bezierCurveTo(8, 30, 24, 29, 32, 18);
-    c.stroke();
-
-    c.strokeStyle = 'rgba(110, 82, 66, 0.38)';
-    c.lineWidth = 1.4;
-    for (const side of [-1, 1]) {
-      c.beginPath();
-      c.moveTo(side * 22, 15);
-      c.quadraticCurveTo(side * 38, 13, side * 50, 17);
-      c.moveTo(side * 24, 20);
-      c.quadraticCurveTo(side * 40, 20, side * 52, 25);
-      c.stroke();
     }
-
-    c.beginPath();
-    c.moveTo(0, 2);
-    c.bezierCurveTo(12, 1.5, 15, 9, 9, 15);
-    c.quadraticCurveTo(0, 19, -9, 15);
-    c.bezierCurveTo(-15, 9, -12, 1.5, 0, 2);
-    c.closePath();
-    c.fillStyle = '#2B201D';
+    c.fillStyle = fSpec.noseColor;
     c.fill();
 
-    c.fillStyle = 'rgba(255, 255, 255, 0.65)';
+    c.fillStyle = 'rgba(255, 255, 255, 0.75)';
     c.beginPath();
-    c.ellipse(-3.6, 6.2, 3.8, 1.9, -0.3, 0, Math.PI * 2);
-    c.fill();
-
-    c.restore();
-    c.restore();
-  }
-
-  // =========================================================================
-  // CHARACTER 3 (图3): 🖤 歪头黑柴 (Kuro)
-  // =========================================================================
-  function drawKuroTail(c, bodyX, wagAngle, breath) {
-    const ink = '#0B0C0E';
-    c.save();
-    c.translate(bodyX - 66, -54 + breath * 0.3);
-    c.rotate(-0.08 + wagAngle);
-
-    const spikyTailPath = () => {
-      c.beginPath();
-      c.moveTo(8, 18);
-      c.lineTo(-10, 18);
-      c.lineTo(-22, 12);
-      c.lineTo(-16, 8);
-      c.lineTo(-34, -2);
-      c.lineTo(-26, -6);
-      c.lineTo(-44, -22);
-      c.lineTo(-34, -25);
-      c.lineTo(-46, -42);
-      c.lineTo(-33, -42);
-      c.lineTo(-38, -58);
-      c.lineTo(-24, -52);
-      c.lineTo(-22, -66);
-      c.lineTo(-10, -55);
-      c.lineTo(-4, -64);
-      c.quadraticCurveTo(10, -48, 12, -18);
-      c.closePath();
-    };
-
-    spikyTailPath();
-    const tg = c.createRadialGradient(-18, -32, 6, -18, -28, 48);
-    tg.addColorStop(0, '#2B2E36');
-    tg.addColorStop(0.65, '#191B20');
-    tg.addColorStop(1, '#101215');
-    c.fillStyle = tg;
-    c.fill();
-
-    c.strokeStyle = 'rgba(248, 238, 224, 0.55)';
-    c.lineWidth = 2.2;
-    c.lineCap = 'round';
-    c.beginPath();
-    c.moveTo(-26, 4);
-    c.quadraticCurveTo(-34, -8, -30, -20);
-    c.stroke();
-
-    spikyTailPath();
-    c.strokeStyle = ink;
-    c.lineWidth = 3.2;
-    c.lineJoin = 'round';
-    c.stroke();
-
-    c.restore();
-  }
-
-  function drawKuroEar(c, side, kick, pass) {
-    const ink = '#0B0C0E';
-    c.save();
-    c.translate(side * 64, -52);
-    c.rotate(side * (0.24 + kick * 0.14));
-
-    const earPath = () => {
-      c.beginPath();
-      c.moveTo(side * -30, 22);
-      c.bezierCurveTo(side * -24, -30, side * 4, -74, side * 24, -66);
-      c.bezierCurveTo(side * 44, -56, side * 46, 4, side * 28, 38);
-      c.closePath();
-    };
-
-    if (pass === 'stroke') {
-      earPath();
-      c.strokeStyle = ink;
-      c.lineWidth = 6.4;
-      c.lineJoin = 'round';
-      c.stroke();
-      c.restore();
-      return;
-    }
-
-    earPath();
-    c.fillStyle = '#191B20';
-    c.fill();
-
-    c.beginPath();
-    c.moveTo(side * -12, 15);
-    c.bezierCurveTo(side * -6, -20, side * 7, -46, side * 19, -41);
-    c.bezierCurveTo(side * 30, -35, side * 30, 4, side * 19, 22);
-    c.closePath();
-    const ig = c.createLinearGradient(0, -44, 0, 20);
-    ig.addColorStop(0, '#EAC0A8');
-    ig.addColorStop(1, '#D89F84');
-    c.fillStyle = ig;
-    c.fill();
-
-    c.fillStyle = '#191B20';
-    c.beginPath();
-    c.moveTo(side * -14, 18);
-    c.lineTo(side * -5, 6);
-    c.lineTo(side * 1, 14);
-    c.lineTo(side * 9, 5);
-    c.lineTo(side * 20, 22);
-    c.closePath();
+    c.ellipse(-3.6, 10.5, 3.8, 1.9, -0.28, 0, Math.PI * 2);
     c.fill();
 
     c.restore();
   }
 
-  function defineKuroFluffyHeadPath(c) {
-    c.beginPath();
-    c.moveTo(0, -92);
-    c.bezierCurveTo(56, -92, 100, -52, 106, -6);
-    c.lineTo(115, 4);
-    c.lineTo(109, 10);
-    c.lineTo(117, 22);
-    c.lineTo(108, 27);
-    c.lineTo(112, 39);
-    c.bezierCurveTo(96, 68, 56, 84, 0, 84);
-    c.bezierCurveTo(-56, 84, -96, 68, -112, 39);
-    c.lineTo(-108, 27);
-    c.lineTo(-117, 22);
-    c.lineTo(-109, 10);
-    c.lineTo(-115, 4);
-    c.lineTo(-106, -6);
-    c.bezierCurveTo(-100, -52, -56, -92, 0, -92);
-    c.closePath();
-  }
-
-  function drawKuroEye(c, x, y, side, blinkAmount, lookX, lookY) {
-    c.save();
-    c.translate(x, y);
-
-    if (blinkAmount > 0.72) {
-      c.strokeStyle = '#FAF2E6';
-      c.lineWidth = 3.4;
-      c.lineCap = 'round';
-      c.beginPath();
-      c.moveTo(-13, 2);
-      c.quadraticCurveTo(0, 8, 13, 2);
-      c.stroke();
-      c.restore();
-      return;
-    }
-
-    const sy = Math.max(0.15, 1 - blinkAmount * 0.9);
-    c.scale(1, sy);
-
-    // Fixed white sclera socket so the dark iris visibly rolls toward the cursor!
-    c.fillStyle = '#FFFFFF';
-    c.beginPath();
-    c.ellipse(side * 1.4, 1.0, 16.4, 17.4, 0, 0, Math.PI * 2);
-    c.fill();
-
-    c.save();
-    c.beginPath();
-    c.ellipse(side * 1.0, 0.8, 16.4, 17.4, 0, 0, Math.PI * 2);
-    c.clip();
-
-    const gx = lookX * 5.6;
-    const gy = lookY * 4.5;
-
-    c.fillStyle = '#0F0E11';
-    c.beginPath();
-    c.ellipse(gx, gy, 14.6, 15.8, 0, 0, Math.PI * 2);
-    c.fill();
-
-    const ig = c.createRadialGradient(gx, gy + 6, 1, gx, gy + 6, 10);
-    ig.addColorStop(0, 'rgba(104, 66, 44, 0.62)');
-    ig.addColorStop(1, 'rgba(15, 14, 17, 0)');
-    c.fillStyle = ig;
-    c.beginPath();
-    c.ellipse(gx, gy + 6, 10, 6.5, 0, 0, Math.PI * 2);
-    c.fill();
-
-    // Sparkling catchlights shift slightly further for glossy cornea depth!
-    const hlX = lookX * 6.8;
-    const hlY = lookY * 5.4;
-    c.fillStyle = '#FFFFFF';
-    c.beginPath();
-    c.ellipse(hlX - 4.5, hlY - 5.5, 4.8, 4.2, -0.25, 0, Math.PI * 2);
-    c.fill();
-
-    c.beginPath();
-    c.arc(hlX + 4.8, hlY + 5.2, 2.0, 0, Math.PI * 2);
-    c.fill();
-
-    c.restore();
-    c.restore();
-  }
-
-  function drawKuroSquatPuppy(c, st, bodyX, breath) {
-    const ink = '#0B0C0E';
-    const lineW = 3.2;
-    const wag = Math.sin(st.tailPhase) * (0.14 + st.excitement * 0.25);
-
-    drawKuroTail(c, bodyX, wag, breath);
-
-    for (const side of [-1, 1]) {
-      defineSquatHindThighPath(c, bodyX, side, breath);
-      c.fillStyle = '#181A1F';
-      c.fill();
-      c.strokeStyle = ink;
-      c.lineWidth = lineW;
-      c.stroke();
-
-      defineTuckedHindPawPath(c, bodyX, side);
-      const hpg = c.createLinearGradient(bodyX + side * 56, -24, bodyX + side * 84, -10);
-      hpg.addColorStop(0, '#E8A86E');
-      hpg.addColorStop(0.55, '#FCF3E6');
-      hpg.addColorStop(1, '#FFFFFF');
-      c.fillStyle = hpg;
-      c.fill();
-      c.strokeStyle = ink;
-      c.lineWidth = 2.8;
-      c.stroke();
-      drawHindPawToeCreases(c, bodyX, side, ink, 2.2);
-    }
-
-    c.save();
-    defineSquatTorsoPath(c, bodyX, breath);
-    const bodyGrad = c.createRadialGradient(bodyX, -96, 12, bodyX, -64, 92);
-    bodyGrad.addColorStop(0, '#292C34');
-    bodyGrad.addColorStop(0.65, '#191B20');
-    bodyGrad.addColorStop(1, '#111317');
-    c.fillStyle = bodyGrad;
-    c.fill();
-    c.strokeStyle = ink;
-    c.lineWidth = lineW;
-    c.stroke();
-    c.restore();
-  }
-
-  function drawKuroRuffAndHead(c, st, bodyX, breath) {
-    const ink = '#0B0C0E';
-    const lineW = 3.2;
-
-    // Fluffy Black Neck Ruff + Wide Fluffy White Winged V-Chest Tuft (overlapping upper shoulder roots naturally!)
-    const ruffY = -124 + breath * 0.55;
-    c.save();
-    c.translate(bodyX, 0);
-
-    const vY = ruffY + 21;
-    c.fillStyle = '#FCF3E6';
-    c.beginPath();
-    c.moveTo(0, vY + 2);
-    c.quadraticCurveTo(22, vY - 3, 44, vY + 2);
-    c.lineTo(37, vY + 10);
-    c.lineTo(42, vY + 15);
-    c.lineTo(25, vY + 21);
-    c.lineTo(13, vY + 25);
-    c.lineTo(0, vY + 36);
-    c.lineTo(-13, vY + 25);
-    c.lineTo(-25, vY + 21);
-    c.lineTo(-42, vY + 15);
-    c.lineTo(-37, vY + 10);
-    c.lineTo(-44, vY + 2);
-    c.quadraticCurveTo(-22, vY - 3, 0, vY + 2);
-    c.closePath();
-    c.fill();
-
-    c.beginPath();
-    c.moveTo(-54, ruffY - 2);
-    c.lineTo(-58, ruffY + 8);
-    c.lineTo(-46, ruffY + 12);
-    c.lineTo(-48, ruffY + 20);
-    c.lineTo(-30, ruffY + 18);
-    c.lineTo(-22, ruffY + 25);
-    c.lineTo(-8, ruffY + 20);
-    c.lineTo(0, ruffY + 27);
-    c.lineTo(8, ruffY + 20);
-    c.lineTo(22, ruffY + 25);
-    c.lineTo(30, ruffY + 18);
-    c.lineTo(48, ruffY + 20);
-    c.lineTo(46, ruffY + 12);
-    c.lineTo(58, ruffY + 8);
-    c.lineTo(54, ruffY - 2);
-    c.closePath();
-    c.fillStyle = '#191B20';
-    c.fill();
-    c.restore();
-
-    // Head with 2.5D cursor turn & parallax
+  function drawSharedHeadAndFace(c, def, st, bodyX, breath) {
+    const hSpec = def.head;
     const headX = bodyX + st.lookX * 11;
     const headY = -204 + breath * 0.85 + st.lookY * 6.5 + st.bounce * 4.5;
-    const headTilt = st.baseTilt + st.leanX * 0.002 + st.lookX * 0.11;
+    const headTilt = def.baseTilt + st.leanX * 0.002 + st.lookX * 0.11;
 
     c.save();
     c.translate(headX, headY);
     c.rotate(headTilt);
 
-    c.save();
-    c.translate(-st.lookX * 5.5, -st.lookY * 3.2);
-    drawKuroEar(c, -1, st.leftEarKick, 'stroke');
-    drawKuroEar(c, 1, st.rightEarKick, 'stroke');
-    c.restore();
-
-    defineKuroFluffyHeadPath(c);
-    c.strokeStyle = ink;
-    c.lineWidth = lineW * 2;
-    c.lineJoin = 'round';
-    c.stroke();
-
-    c.save();
-    c.translate(-st.lookX * 5.5, -st.lookY * 3.2);
-    drawKuroEar(c, -1, st.leftEarKick, 'fill');
-    drawKuroEar(c, 1, st.rightEarKick, 'fill');
-    c.restore();
-
-    defineKuroFluffyHeadPath(c);
-    const hg = c.createRadialGradient(-18 + st.lookX * 10, -46 + st.lookY * 8, 12, 0, 4, 130);
-    hg.addColorStop(0, '#2D313A');
-    hg.addColorStop(0.55, '#1A1C21');
-    hg.addColorStop(1, '#111216');
-    c.fillStyle = hg;
-    c.fill();
-
-    c.save();
-    defineKuroFluffyHeadPath(c);
-    c.clip();
-
-    const mx = st.lookX * 8.5;
-    const my = st.lookY * 5.5;
-    c.fillStyle = '#E6A56A';
-    c.beginPath();
-    c.ellipse(-58 + mx, 12 + my, 34, 18, -0.22, 0, Math.PI * 2);
-    c.ellipse(58 + mx, 12 + my, 34, 18, 0.22, 0, Math.PI * 2);
-    c.fill();
-
-    c.beginPath();
-    c.moveTo(-114, 20 + my * 0.6);
-    c.bezierCurveTo(-76 + mx, 6 + my, -48 + mx, 14 + my, -26 + mx, 16 + my);
-    c.bezierCurveTo(-14 + mx, 16 + my, -10 + mx, 0 + my, mx, 0 + my);
-    c.bezierCurveTo(10 + mx, 0 + my, 14 + mx, 16 + my, 26 + mx, 16 + my);
-    c.bezierCurveTo(48 + mx, 14 + my, 76 + mx, 6 + my, 114, 20 + my * 0.6);
-    c.lineTo(120, 100);
-    c.lineTo(-120, 100);
-    c.closePath();
-
-    const cg = c.createLinearGradient(0, my, 0, 88);
-    cg.addColorStop(0, '#FDF6EA');
-    cg.addColorStop(0.75, '#FAF0E1');
-    cg.addColorStop(1, '#EFE2CE');
-    c.fillStyle = cg;
-    c.fill();
-
-    c.fillStyle = 'rgba(206, 186, 166, 0.45)';
-    c.beginPath();
-    c.ellipse(mx * 0.6, 76 + my * 0.4, 36, 12, 0, 0, Math.PI * 2);
-    c.fill();
-
-    c.restore();
-
-    const fx = st.lookX * 12.5;
-    const fy = st.lookY * 8.5;
-    c.save();
-    c.translate(fx, fy);
-
-    c.fillStyle = '#EEB67E';
-    c.beginPath();
-    c.ellipse(-28 + st.lookX * 1.5, -28 + st.lookY * 1.2, 11.5, 7.2, 0.28, 0, Math.PI * 2);
-    c.fill();
-    c.beginPath();
-    c.ellipse(28 + st.lookX * 1.5, -28 + st.lookY * 1.2, 11.5, 7.2, -0.28, 0, Math.PI * 2);
-    c.fill();
-
-    const blinkAmount = st.blinkProgress > 0 ? Math.sin(st.blinkProgress) : 0;
-    drawKuroEye(c, -40, -3, -1, blinkAmount, st.lookX, st.lookY);
-    drawKuroEye(c, 40, -3, 1, blinkAmount, st.lookX, st.lookY);
-
-    c.fillStyle = 'rgba(218, 198, 176, 0.35)';
-    c.beginPath();
-    c.ellipse(0, 26, 20, 14, 0, 0, Math.PI * 2);
-    c.fill();
-
-    c.strokeStyle = ink;
-    c.lineWidth = 2.9;
-    c.lineCap = 'round';
-    c.lineJoin = 'round';
-    c.beginPath();
-    c.moveTo(0, 20);
-    c.lineTo(0, 26);
-    c.moveTo(-19, 30);
-    c.bezierCurveTo(-13, 34, -5, 32, 0, 26);
-    c.bezierCurveTo(5, 32, 13, 34, 19, 29.5);
-    c.stroke();
-
-    c.strokeStyle = 'rgba(42, 34, 28, 0.55)';
-    c.lineWidth = 1.5;
-    for (const side of [-1, 1]) {
+    const crownShiftX = -st.lookX * 3.5;
+    const defineCrownFluff = () => {
       c.beginPath();
-      c.moveTo(side * 24, 19);
-      c.lineTo(side * 34, 17);
-      c.moveTo(side * 26, 25);
-      c.lineTo(side * 37, 25);
+      c.moveTo(-46 + crownShiftX, -72);
+      c.lineTo(-44 + crownShiftX, -84);
+      c.quadraticCurveTo(-33 + crownShiftX, -101, -18 + crownShiftX, -90);
+      c.quadraticCurveTo(-6 + crownShiftX, -105, 10 + crownShiftX, -91);
+      c.quadraticCurveTo(26 + crownShiftX, -101, 40 + crownShiftX, -84);
+      c.lineTo(42 + crownShiftX, -72);
+      c.closePath();
+    };
+
+    // Upright ear outer strokes behind head silhouette
+    if (hSpec.earType === 'upright-shiba') {
+      c.save();
+      c.translate(-st.lookX * 5.5, -st.lookY * 3.2);
+      drawSharedUprightEar(c, def, -1, st.leftEarKick, 'stroke');
+      drawSharedUprightEar(c, def, 1, st.rightEarKick, 'stroke');
+      c.restore();
+    }
+
+    if (hSpec.crownFluff) {
+      defineCrownFluff();
+      c.strokeStyle = def.outline;
+      c.lineWidth = def.outlineW * 2;
+      c.lineJoin = 'round';
       c.stroke();
     }
 
-    c.beginPath();
-    c.moveTo(0, 7);
-    c.bezierCurveTo(11, 6.5, 14, 13, 8, 18.5);
-    c.quadraticCurveTo(0, 22, -8, 18.5);
-    c.bezierCurveTo(-14, 13, -11, 6.5, 0, 7);
-    c.closePath();
-    c.fillStyle = '#0E0D10';
-    c.fill();
-
-    c.fillStyle = 'rgba(255, 255, 255, 0.78)';
-    c.beginPath();
-    c.ellipse(-3.5, 10.8, 3.6, 1.8, -0.3, 0, Math.PI * 2);
-    c.fill();
-
-    c.restore();
-    c.restore();
-  }
-
-  // =========================================================================
-  // Unobstructed Front Keyboard & Mouse (Placed Cleanly Below Squatting Paws!)
-  // =========================================================================
-  function getDeskTheme(dogId) {
-    if (dogId === 'sunny') {
-      return {
-        kbBase: '#5A4A36',
-        kbTop1: '#F2DDA8',
-        kbTop2: '#DEC07C',
-        kbStroke: '#181411',
-        kbStrokeW: 2.8,
-        kbWell: '#483B2B',
-        capSide: '#D8C8A8',
-        capTop: '#FFFDF5',
-        capText: '#2E2418',
-        accentTop1: '#FFB94E',
-        accentTop2: '#F08E26',
-        padFill: isDarkTheme ? 'rgba(248, 212, 128, 0.14)' : 'rgba(242, 206, 122, 0.35)',
-        padStroke: isDarkTheme ? 'rgba(248, 212, 128, 0.3)' : 'rgba(168, 124, 48, 0.32)',
-        mouseStroke: '#181411',
-      };
-    }
-    if (dogId === 'daisy') {
-      return {
-        kbBase: '#55657F',
-        kbTop1: '#8AA8D8',
-        kbTop2: '#6F8FC4',
-        kbStroke: '#5C483B',
-        kbStrokeW: 2.4,
-        kbWell: '#4E5D77',
-        capSide: '#CFD9E8',
-        capTop: '#FFFDF9',
-        capText: '#493D36',
-        accentTop1: '#FFC266',
-        accentTop2: '#F59E36',
-        padFill: isDarkTheme ? 'rgba(116, 166, 236, 0.16)' : 'rgba(134, 182, 242, 0.34)',
-        padStroke: isDarkTheme ? 'rgba(140, 186, 248, 0.3)' : 'rgba(92, 138, 202, 0.38)',
-        mouseStroke: '#6A4E3B',
-      };
-    }
-    return {
-      kbBase: '#12141A',
-      kbTop1: '#2D313C',
-      kbTop2: '#1E2129',
-      kbStroke: '#0B0C0E',
-      kbStrokeW: 2.6,
-      kbWell: '#13151B',
-      capSide: '#CFD5DF',
-      capTop: '#F8F9FB',
-      capText: '#262A34',
-      accentTop1: '#F2B476',
-      accentTop2: '#DE9248',
-      padFill: isDarkTheme ? 'rgba(255, 255, 255, 0.08)' : 'rgba(42, 46, 56, 0.1)',
-      padStroke: isDarkTheme ? 'rgba(255, 255, 255, 0.18)' : 'rgba(42, 46, 56, 0.22)',
-      mouseStroke: '#1A1D24',
-    };
-  }
-
-  function drawPuppyKeyboard(c, dogId) {
-    const dt = getDeskTheme(dogId);
-    const hw = KB_LOCAL.w * 0.5;
-    const hh = KB_LOCAL.h * 0.5;
-
-    c.save();
-    c.translate(KB_LOCAL.cx, KB_LOCAL.cy);
-    c.rotate(KB_LOCAL.angle);
-
-    c.fillStyle = isDarkTheme ? 'rgba(0, 0, 0, 0.44)' : 'rgba(56, 78, 112, 0.2)';
-    roundRectPath(c, -hw + 2, -hh + 6, KB_LOCAL.w, KB_LOCAL.h, 12);
-    c.fill();
-
-    roundRectPath(c, -hw, -hh + 3.5, KB_LOCAL.w, KB_LOCAL.h, 11);
-    c.fillStyle = dt.kbBase;
-    c.fill();
-
-    roundRectPath(c, -hw, -hh, KB_LOCAL.w, KB_LOCAL.h - 1.5, 11);
-    const fg = c.createLinearGradient(0, -hh, 0, hh);
-    fg.addColorStop(0, dt.kbTop1);
-    fg.addColorStop(1, dt.kbTop2);
-    c.fillStyle = fg;
-    c.fill();
-    c.strokeStyle = dt.kbStroke;
-    c.lineWidth = dt.kbStrokeW;
+    defineSharedHeadSilhouette(c, hSpec.shape);
+    c.strokeStyle = def.outline;
+    c.lineWidth = def.outlineW * 2;
+    c.lineJoin = 'round';
     c.stroke();
 
-    roundRectPath(c, -hw + 5.5, -hh + 5.5, KB_LOCAL.w - 11, KB_LOCAL.h - 12.5, 7);
-    c.fillStyle = dt.kbWell;
+    if (hSpec.earType === 'upright-shiba') {
+      c.save();
+      c.translate(-st.lookX * 5.5, -st.lookY * 3.2);
+      drawSharedUprightEar(c, def, -1, st.leftEarKick, 'fill');
+      drawSharedUprightEar(c, def, 1, st.rightEarKick, 'fill');
+      c.restore();
+    }
+
+    defineSharedHeadSilhouette(c, hSpec.shape);
+    const hg = c.createRadialGradient(-18 + st.lookX * 10, -45 + st.lookY * 8, 14, 0, 5, 130);
+    hg.addColorStop(0, hSpec.grad[0]);
+    hg.addColorStop(0.55, hSpec.grad[1]);
+    hg.addColorStop(1, hSpec.grad[2]);
+    c.fillStyle = hg;
     c.fill();
 
-    for (const k of keysList) {
-      drawKeycapLocal(c, k, dt);
+    if (hSpec.crownFluff) {
+      defineCrownFluff();
+      c.fillStyle = hSpec.crownFill;
+      c.fill();
     }
+
+    // Cheek & Muzzle Markings clipped inside head silhouette
+    const mx = st.lookX * 8.5;
+    const my = st.lookY * 5.5;
+
+    if (hSpec.maskType === 'urajiro-shiba') {
+      c.save();
+      defineSharedHeadSilhouette(c, hSpec.shape);
+      c.clip();
+
+      c.beginPath();
+      c.moveTo(mx, -2 + my);
+      c.bezierCurveTo(18 + mx, -22 + my, 72 + mx, -20 + my, 124, 16 + my * 0.5);
+      c.lineTo(126, 102);
+      c.lineTo(-126, 102);
+      c.lineTo(-124, 16 + my * 0.5);
+      c.bezierCurveTo(-72 + mx, -20 + my, -18 + mx, -22 + my, mx, -2 + my);
+      c.closePath();
+
+      const fg = c.createLinearGradient(0, -22 + my, 0, 88);
+      fg.addColorStop(0, '#FFFFFF');
+      fg.addColorStop(0.82, '#FFFDF9');
+      fg.addColorStop(1, '#F6EEE3');
+      c.fillStyle = fg;
+      c.fill();
+
+      c.strokeStyle = 'rgba(255, 238, 198, 0.55)';
+      c.lineWidth = 4.5;
+      c.lineCap = 'round';
+      c.beginPath();
+      c.arc(mx * 0.5, -10 + my * 0.5, 74, -Math.PI * 0.66, -Math.PI * 0.34);
+      c.stroke();
+      c.restore();
+    } else if (hSpec.maskType === 'black-tan-shiba') {
+      c.save();
+      defineSharedHeadSilhouette(c, hSpec.shape);
+      c.clip();
+
+      c.fillStyle = '#E6A56A';
+      c.beginPath();
+      c.ellipse(-58 + mx, 12 + my, 34, 18, -0.22, 0, Math.PI * 2);
+      c.ellipse(58 + mx, 12 + my, 34, 18, 0.22, 0, Math.PI * 2);
+      c.fill();
+
+      c.beginPath();
+      c.moveTo(-114, 20 + my * 0.6);
+      c.bezierCurveTo(-76 + mx, 6 + my, -48 + mx, 14 + my, -26 + mx, 16 + my);
+      c.bezierCurveTo(-14 + mx, 16 + my, -10 + mx, 0 + my, mx, 0 + my);
+      c.bezierCurveTo(10 + mx, 0 + my, 14 + mx, 16 + my, 26 + mx, 16 + my);
+      c.bezierCurveTo(48 + mx, 14 + my, 76 + mx, 6 + my, 114, 20 + my * 0.6);
+      c.lineTo(120, 100);
+      c.lineTo(-120, 100);
+      c.closePath();
+
+      const cg = c.createLinearGradient(0, my, 0, 88);
+      cg.addColorStop(0, '#FDF6EA');
+      cg.addColorStop(0.75, '#FAF0E1');
+      cg.addColorStop(1, '#EFE2CE');
+      c.fillStyle = cg;
+      c.fill();
+
+      c.fillStyle = 'rgba(206, 186, 166, 0.45)';
+      c.beginPath();
+      c.ellipse(mx * 0.6, 76 + my * 0.4, 36, 12, 0, 0, Math.PI * 2);
+      c.fill();
+      c.restore();
+    } else if (hSpec.maskType === 'muzzle-oval') {
+      c.fillStyle = hSpec.muzzleFill;
+      c.beginPath();
+      c.ellipse(st.lookX * 13.0, 26 + st.lookY * 8.8, 46, 31, 0, 0, Math.PI * 2);
+      c.fill();
+    }
+
+    // Floppy ears hang over the side edges of the head
+    if (hSpec.earType === 'floppy') {
+      c.save();
+      c.translate(-st.lookX * 5.5, -st.lookY * 3.2);
+      drawSharedFloppyEar(c, def, -1, st.leftEarKick);
+      drawSharedFloppyEar(c, def, 1, st.rightEarKick);
+      c.restore();
+    }
+
+    // Unified Face Expression (Default Kuro calm <-> Petted Daisy happy laugh!)
+    drawSharedFaceExpression(c, def, st);
 
     c.restore();
   }
 
+  // =========================================================================
+  // SHARED COMPONENT 5: Desk Workstation (Keyboard + Right-Side User Mouse)
+  // =========================================================================
   function drawKeycapLocal(c, k, dt) {
     const pressOffset = k.press * 2.0;
     const glow = k.glow;
@@ -3110,7 +3170,6 @@
       c.fillStyle = glow > 0.25 ? '#3F1D04' : k.accent ? '#FFFFFF' : dt.capText;
       c.fillText(k.label, k.lcx, k.ly + pressOffset + capH * 0.54);
     }
-
     c.restore();
   }
 
@@ -3124,30 +3183,62 @@
     c.closePath();
   }
 
-  function drawPuppyMouseAndPad(c, dogId) {
-    const dt = getDeskTheme(dogId);
+  function drawWorkstationDesk(c, def) {
+    const dt = def.desk;
+    const kbHW = KB_LOCAL.w * 0.5;
+    const kbHH = KB_LOCAL.h * 0.5;
 
+    // 1. Mechanical Keyboard
     c.save();
-    const mpHW = MOUSE_PAD_LOCAL.w * 0.5;
-    const mpHH = MOUSE_PAD_LOCAL.h * 0.5;
+    c.translate(KB_LOCAL.cx, KB_LOCAL.cy);
+    c.rotate(KB_LOCAL.angle);
+
+    c.fillStyle = isDarkTheme ? 'rgba(0, 0, 0, 0.44)' : 'rgba(56, 78, 112, 0.2)';
+    roundRectPath(c, -kbHW + 2, -kbHH + 6, KB_LOCAL.w, KB_LOCAL.h, 12);
+    c.fill();
+
+    roundRectPath(c, -kbHW, -kbHH + 3.5, KB_LOCAL.w, KB_LOCAL.h, 11);
+    c.fillStyle = dt.kbBase;
+    c.fill();
+
+    roundRectPath(c, -kbHW, -kbHH, KB_LOCAL.w, KB_LOCAL.h - 1.5, 11);
+    const fg = c.createLinearGradient(0, -kbHH, 0, kbHH);
+    fg.addColorStop(0, dt.kbTop1);
+    fg.addColorStop(1, dt.kbTop2);
+    c.fillStyle = fg;
+    c.fill();
+    c.strokeStyle = dt.kbStroke;
+    c.lineWidth = dt.kbStrokeW;
+    c.stroke();
+
+    roundRectPath(c, -kbHW + 5.5, -kbHH + 5.5, KB_LOCAL.w - 11, KB_LOCAL.h - 12.5, 7);
+    c.fillStyle = dt.kbWell;
+    c.fill();
+
+    for (const k of keysList) {
+      drawKeycapLocal(c, k, dt);
+    }
+    c.restore();
+
+    // 2. Right-Side Mouse Pad & User-Perspective Mouse
+    c.save();
     roundRectPath(
       c,
-      MOUSE_PAD_LOCAL.cx - mpHW,
-      MOUSE_PAD_LOCAL.cy - mpHH,
+      MOUSE_PAD_LOCAL.cx - MOUSE_PAD_LOCAL.w * 0.5,
+      MOUSE_PAD_LOCAL.cy - MOUSE_PAD_LOCAL.h * 0.5,
       MOUSE_PAD_LOCAL.w,
       MOUSE_PAD_LOCAL.h,
       17
     );
-    c.fillStyle = dt.padFill;
+    c.fillStyle = isDarkTheme ? dt.padDark : dt.padLight;
     c.fill();
-    c.strokeStyle = dt.padStroke;
+    c.strokeStyle = isDarkTheme ? dt.padStrokeDark : dt.padStrokeLight;
     c.lineWidth = 1.8;
     c.stroke();
     c.restore();
 
     const hw = MOUSE_SIZE_LOCAL.w * 0.5;
     const hh = MOUSE_SIZE_LOCAL.h * 0.5;
-    // User-Perspective Mouse: Top half [-hh, splitY] = L | Wheel | R buttons; Bottom half [splitY, +hh] = Palm rest!
     const splitY = 2;
 
     c.save();
@@ -3159,7 +3250,6 @@
     c.ellipse(1.5, 5, hw * 1.04, hh * 0.98, 0, 0, Math.PI * 2);
     c.fill();
 
-    // Top-Left (L) outer glow aura
     if (inputState.leftGlow > 0.04) {
       const lAura = c.createRadialGradient(-hw * 0.45, -hh * 0.45, 2, -hw * 0.45, -hh * 0.45, 42);
       lAura.addColorStop(0, `rgba(255, 116, 68, ${(0.78 * inputState.leftGlow).toFixed(3)})`);
@@ -3170,7 +3260,6 @@
       c.fill();
     }
 
-    // Top-Right (R) outer glow aura
     if (inputState.rightGlow > 0.04) {
       const rAura = c.createRadialGradient(hw * 0.45, -hh * 0.45, 2, hw * 0.45, -hh * 0.45, 42);
       rAura.addColorStop(0, `rgba(56, 189, 248, ${(0.78 * inputState.rightGlow).toFixed(3)})`);
@@ -3192,7 +3281,6 @@
     c.fillStyle = bodyGrad;
     c.fillRect(-hw - 4, -hh - 4, hw * 2 + 8, hh * 2 + 8);
 
-    // LEFT BUTTON HIGHLIGHT (Top-Left Half — User Perspective!)
     if (inputState.leftGlow > 0.02) {
       c.save();
       c.beginPath();
@@ -3207,7 +3295,6 @@
       c.restore();
     }
 
-    // RIGHT BUTTON HIGHLIGHT (Top-Right Half — User Perspective!)
     if (inputState.rightGlow > 0.02) {
       c.save();
       c.beginPath();
@@ -3222,7 +3309,6 @@
       c.restore();
     }
 
-    // Crisp seam splitting Top L/R Buttons vs Lower Palm Shell
     c.strokeStyle = 'rgba(72, 82, 98, 0.5)';
     c.lineWidth = 1.5;
     c.beginPath();
@@ -3241,12 +3327,10 @@
     c.fillStyle = inputState.rightGlow > 0.35 ? '#FFFFFF' : 'rgba(72, 65, 62, 0.52)';
     c.fillText('R', hw * 0.54, -hh * 0.38);
 
-    // Subtle glossy reflection on lower palm rest
     c.fillStyle = 'rgba(255, 255, 255, 0.52)';
     c.beginPath();
     c.ellipse(-4, hh * 0.48, 8, 4.2, -0.2, 0, Math.PI * 2);
     c.fill();
-
     c.restore();
 
     defineMouseShellPath(c, hw, hh);
@@ -3277,7 +3361,6 @@
       c.restore();
     }
 
-    // Top-Center Scroll Wheel (User Perspective!)
     const wheelW = 8.5;
     const wheelH = 16.5;
     const wheelX = -wheelW * 0.5;
@@ -3308,237 +3391,15 @@
       c.stroke();
     }
     c.restore();
-
     c.restore();
   }
 
   // =========================================================================
-  // Unified Fixed-Shoulder Front Limb (Continuous 0..1 Squat <-> Reach Rig!)
+  // Master Puppy Workstation Assembler (100% Shared Across All Characters!)
   // =========================================================================
-  function drawUnifiedFrontLimb(c, dogId, { sx, sy, homeX, homeY, px, py, side, press, lift }) {
-    const distFromHome = Math.hypot(px - homeX, py - homeY);
-    const reachT = easeOutCubic(clamp(distFromHome / 44, 0, 1));
-
-    const pyVis = py - lift * 15;
-    const dx = px - sx;
-    const dy = pyVis - sy;
-    const len = Math.max(1, Math.hypot(dx, dy));
-
-    // Upward-arching elbow (never sags downward!)
-    const bendX = side * lerp(2.5, Math.min(20, len * 0.16), reachT);
-    const bendY = lerp(0, -10, reachT) - lift * 9;
-    const cx = (sx + px) * 0.5 + bendX;
-    const cy = (sy + pyVis) * 0.5 + bendY;
-
-    const endDx = px - cx;
-    const endDy = pyVis - cy;
-    const armEndAngle = Math.atan2(endDy, endDx);
-    // Smoothly blend paw angle from 0 (flat ground squat) toward arm direction when reaching
-    let targetPawRot = armEndAngle - Math.PI * 0.5;
-    while (targetPawRot > Math.PI) targetPawRot -= Math.PI * 2;
-    while (targetPawRot < -Math.PI) targetPawRot += Math.PI * 2;
-    const pawRot = targetPawRot * (reachT * 0.65);
-
-    const squashX = 1 + press * 0.1 - lift * 0.04;
-    const squashY = 1 - press * 0.08 + lift * 0.07;
-
-    const outline = dogId === 'sunny' ? '#181411' : dogId === 'daisy' ? '#7A5134' : '#0B0C0E';
-    const outlineW = dogId === 'sunny' ? 3.6 : dogId === 'daisy' ? 2.8 : 3.1;
-
-    const rShoulder = 21.5;
-    const rMid = lerp(20.2, 17.6, reachT);
-    const rWrist = lerp(18.5, 15.4, reachT);
-    const pawRX = lerp(22.2, 18.2, reachT);
-    const pawRY = lerp(12.2, 15.2, reachT);
-
-    c.save();
-
-    // Contact shadow under paw when reaching over keyboard / mouse
-    if (reachT > 0.08) {
-      c.fillStyle = `rgba(0, 0, 0, ${(0.16 * reachT).toFixed(3)})`;
-      c.beginPath();
-      c.ellipse(
-        px,
-        pyVis + 5 + lift * 8,
-        19 * (1 - lift * 0.2),
-        11.5 * (1 - lift * 0.2),
-        0,
-        0,
-        Math.PI * 2
-      );
-      c.fill();
-    }
-
-    const sAngle = Math.atan2(cy - sy, cx - sx);
-    const snx = -Math.sin(sAngle);
-    const sny = Math.cos(sAngle);
-    const enx = -Math.sin(armEndAngle);
-    const eny = Math.cos(armEndAngle);
-    const mnx = (snx + enx) * 0.5;
-    const mny = (sny + eny) * 0.5;
-    const mLen = Math.hypot(mnx, mny) || 1;
-    const mnux = mnx / mLen;
-    const mnuy = mny / mLen;
-
-    const sLx = sx + snx * rShoulder, sLy = sy + sny * rShoulder;
-    const sRx = sx - snx * rShoulder, sRy = sy - sny * rShoulder;
-    const mLx = cx + mnux * rMid,     mLy = cy + mnuy * rMid;
-    const mRx = cx - mnux * rMid,     mRy = cy - mnuy * rMid;
-    const wLx = px + enx * rWrist,    wLy = pyVis + eny * rWrist;
-    const wRx = px - enx * rWrist,    wRy = pyVis - eny * rWrist;
-
-    // 1. Unified outer contour pass (paw outer border + arm side strokes)
-    c.save();
-    c.translate(px, pyVis);
-    c.rotate(pawRot);
-    c.scale(squashX, squashY);
-    c.beginPath();
-    c.ellipse(0, 2, pawRX + outlineW, pawRY + outlineW, 0, 0, Math.PI * 2);
-    c.fillStyle = outline;
-    c.fill();
-    c.restore();
-
-    // Determine which side of the limb is outer vs inner chest
-    // For downward limb (sAngle ~ PI/2), snx ~ -1 (left), -snx ~ +1 (right)
-    c.strokeStyle = outline;
-    c.lineWidth = outlineW * 2;
-    c.lineCap = 'round';
-    c.beginPath();
-    c.moveTo(sLx, sLy + (side === 1 ? (1 - reachT) * 14 : 0));
-    c.quadraticCurveTo(mLx, mLy, wLx, wLy);
-    c.moveTo(sRx, sRy + (side === -1 ? (1 - reachT) * 14 : 0));
-    c.quadraticCurveTo(mRx, mRy, wRx, wRy);
-    c.stroke();
-
-    // 2. Seamless limb body fill
-    const defineArmTube = () => {
-      c.beginPath();
-      c.moveTo(sLx, sLy);
-      c.quadraticCurveTo(mLx, mLy, wLx, wLy);
-      c.lineTo(wRx, wRy);
-      c.quadraticCurveTo(mRx, mRy, sRx, sRy);
-      c.closePath();
-    };
-
-    if (dogId === 'kuro') {
-      // Tri-color Black -> Fuzzy Zigzag -> Warm Tan stocking along the limb!
-      c.save();
-      defineArmTube();
-      c.clip();
-
-      const kg = c.createLinearGradient(sx, sy, px, pyVis);
-      kg.addColorStop(0, '#191B20');
-      kg.addColorStop(0.46, '#191B20');
-      kg.addColorStop(0.54, '#E8A86E');
-      kg.addColorStop(1, '#EAB07A');
-      c.fillStyle = kg;
-      c.fill();
-
-      // Crisp fur zigzag tufts at mid-arm transition
-      const midX = (sx + px) * 0.5 + bendX * 0.6;
-      const midY = (sy + pyVis) * 0.5 + bendY * 0.6;
-      c.save();
-      c.translate(midX, midY);
-      c.rotate(armEndAngle - Math.PI * 0.5);
-      c.fillStyle = '#191B20';
-      c.beginPath();
-      c.moveTo(-24, -10);
-      c.lineTo(-14, 4);
-      c.lineTo(-5, -4);
-      c.lineTo(5, 5);
-      c.lineTo(14, -3);
-      c.lineTo(24, 4);
-      c.lineTo(24, -22);
-      c.lineTo(-24, -22);
-      c.closePath();
-      c.fill();
-      c.restore();
-
-      c.restore();
-    } else {
-      const ag = c.createLinearGradient(sx, sy, px, pyVis);
-      if (dogId === 'sunny') {
-        ag.addColorStop(0, '#F8DE84');
-        ag.addColorStop(0.75, '#FCE596');
-        ag.addColorStop(1, '#F6D878');
-      } else {
-        ag.addColorStop(0, '#EE9C4B');
-        ag.addColorStop(0.42, '#F7BE72');
-        ag.addColorStop(0.68, '#FFFBF4');
-        ag.addColorStop(1, '#FFFDF9');
-      }
-      defineArmTube();
-      c.fillStyle = ag;
-      c.fill();
-    }
-
-    // Smooth upper-shoulder blend cap (tucked cleanly beneath collar/bandana!)
-    c.fillStyle = dogId === 'sunny' ? '#F8DE84' : dogId === 'daisy' ? '#EE9C4B' : '#191B20';
-    c.beginPath();
-    c.ellipse(sx + side * 2, sy, rShoulder + 1, 16, 0, 0, Math.PI * 2);
-    c.fill();
-
-    // 3. Plump Puppy Paw + 3 Toe Creases (+ Paw Beans when lifted high!)
-    c.save();
-    c.translate(px, pyVis);
-    c.rotate(pawRot);
-    c.scale(squashX, squashY);
-
-    c.beginPath();
-    c.ellipse(0, 2, pawRX, pawRY, 0, 0, Math.PI * 2);
-    if (dogId === 'sunny') {
-      const pg = c.createRadialGradient(-3, -2, 2, 0, 2, pawRX);
-      pg.addColorStop(0, '#FFF1B8');
-      pg.addColorStop(0.75, '#F9DF86');
-      pg.addColorStop(1, '#ECC564');
-      c.fillStyle = pg;
-    } else {
-      const pg = c.createRadialGradient(-3, -2, 2, 0, 2, pawRX);
-      pg.addColorStop(0, '#FFFFFF');
-      pg.addColorStop(0.8, '#FFFDF9');
-      pg.addColorStop(1, '#EFE4D6');
-      c.fillStyle = pg;
-    }
-    c.fill();
-
-    const toeStroke = dogId === 'daisy' ? '#8C684C' : outline;
-    c.strokeStyle = toeStroke;
-    c.lineWidth = lerp(2.5, 2.0, reachT);
-    c.lineCap = 'round';
-    const toeSpread = lerp(9.2, 5.6, reachT);
-    const toeTopY = lerp(1.5, 8.2, reachT);
-    const toeBotY = pawRY + 1.4;
-    c.beginPath();
-    c.moveTo(-toeSpread, toeTopY);
-    c.lineTo(-toeSpread * 1.04, toeBotY);
-    c.moveTo(0, toeTopY + 0.5);
-    c.lineTo(0, toeBotY + 0.5);
-    c.moveTo(toeSpread, toeTopY);
-    c.lineTo(toeSpread * 1.04, toeBotY);
-    c.stroke();
-
-    if (lift > 0.28 && reachT > 0.25) {
-      const ba = clamp((lift - 0.28) * 1.6, 0, 0.85) * reachT;
-      c.fillStyle =
-        dogId === 'kuro'
-          ? `rgba(68, 52, 48, ${ba.toFixed(3)})`
-          : `rgba(255, 148, 164, ${ba.toFixed(3)})`;
-      c.beginPath();
-      c.ellipse(0, 4.8, 4.6, 3.2, 0, 0, Math.PI * 2);
-      c.fill();
-      c.beginPath();
-      c.arc(-5.6, 10.2, 2.0, 0, Math.PI * 2);
-      c.arc(0, 11.4, 2.2, 0, Math.PI * 2);
-      c.arc(5.6, 10.2, 2.0, 0, Math.PI * 2);
-      c.fill();
-    }
-
-    c.restore();
-    c.restore();
-  }
-
   function drawPuppyWorkstation(c, placement, isExport = false) {
     const { dog, cx, baseY, scale } = placement;
+    const def = dog.def;
     const st = dog.state;
     const breath = isExport ? 0 : Math.sin(st.breathPhase) * 2.8;
     const bodyX = DOG_X + st.leanX;
@@ -3547,19 +3408,14 @@
     c.translate(cx, baseY);
     c.scale(scale, scale);
 
-    // 1. Puppy Squatting Ground Shadow
+    // 1. Ground Shadow
     if (!isExport) {
-      c.fillStyle =
-        dog.id === 'daisy' && !isDarkTheme
-          ? 'rgba(116, 168, 234, 0.32)'
-          : isDarkTheme
-            ? 'rgba(0, 0, 0, 0.38)'
-            : 'rgba(92, 74, 56, 0.14)';
+      c.fillStyle = isDarkTheme ? 'rgba(0, 0, 0, 0.38)' : def.groundShadow.light;
       c.beginPath();
       c.ellipse(bodyX, -3, 102, 20, 0, 0, Math.PI * 2);
       c.fill();
 
-      if (dog.id === 'kuro') {
+      if (def.groundShadow.sketchLines) {
         c.strokeStyle = isDarkTheme ? 'rgba(255,255,255,0.18)' : 'rgba(30, 32, 36, 0.26)';
         c.lineWidth = 1.8;
         c.lineCap = 'round';
@@ -3573,22 +3429,24 @@
     }
 
     // 2. Squatting Torso, Hind Legs & Tail
-    if (dog.id === 'sunny') {
-      drawSunnySquatPuppy(c, st, bodyX, breath);
-    } else if (dog.id === 'daisy') {
-      drawDaisySquatPuppy(c, st, bodyX, breath);
-    } else {
-      drawKuroSquatPuppy(c, st, bodyX, breath);
-    }
+    drawSharedTorsoAndHindLegs(c, def, st, bodyX, breath);
 
-    // 3. Keyboard & Mouse placed cleanly IN FRONT OF puppy (drawn before front limbs so paws reach OVER keys!)
-    drawPuppyKeyboard(c, dog.id);
-    drawPuppyMouseAndPad(c, dog.id);
+    // 3. Unobstructed Front Keyboard & Right-Side Mouse
+    drawWorkstationDesk(c, def);
 
-    // 4. Unified Fixed-Shoulder Front Limbs (Shoulder pivot stays locked at y = -94 under collar/bandana!)
+    // 4. Unified Fixed-Shoulder Front Limbs
     const shoulderY = SHOULDER_Y + breath * 0.45;
     const lp = st.leftPaw;
-    drawUnifiedFrontLimb(c, dog.id, {
+    if (lp.ghostAlpha > 0.03 && lp.isExtended) {
+      c.save();
+      c.globalAlpha = lp.ghostAlpha * 0.36;
+      c.fillStyle = def.limb.pawGrad[1];
+      c.beginPath();
+      c.ellipse(lp.prevX, lp.prevY - 6, 14, 12, 0, 0, Math.PI * 2);
+      c.fill();
+      c.restore();
+    }
+    drawUnifiedFrontLimb(c, def, {
       sx: bodyX - SHOULDER_OFFSET_X,
       sy: shoulderY,
       homeX: bodyX - 35,
@@ -3604,13 +3462,13 @@
     if (rp.ghostAlpha > 0.03 && rp.isExtended) {
       c.save();
       c.globalAlpha = rp.ghostAlpha * 0.36;
-      c.fillStyle = dog.id === 'sunny' ? '#FCE698' : '#FFFDF8';
+      c.fillStyle = def.limb.pawGrad[1];
       c.beginPath();
       c.ellipse(rp.prevX, rp.prevY - 6, 14, 12, 0, 0, Math.PI * 2);
       c.fill();
       c.restore();
     }
-    drawUnifiedFrontLimb(c, dog.id, {
+    drawUnifiedFrontLimb(c, def, {
       sx: bodyX + SHOULDER_OFFSET_X,
       sy: shoulderY,
       homeX: bodyX + 35,
@@ -3622,20 +3480,15 @@
       lift: rp.lift,
     });
 
-    // 5. Collar / Floral Bandana / Neck Ruff + Head (naturally overlapping the top of the shoulder joints!)
-    if (dog.id === 'sunny') {
-      drawSunnyCollarAndHead(c, st, bodyX, breath);
-    } else if (dog.id === 'daisy') {
-      drawDaisyBandanaAndHead(c, st, bodyX, breath);
-    } else {
-      drawKuroRuffAndHead(c, st, bodyX, breath);
-    }
+    // 5. Neck Accessory + Head & Unified Expression
+    drawSharedNeckAccessory(c, def, st, bodyX, breath);
+    drawSharedHeadAndFace(c, def, st, bodyX, breath);
 
     c.restore();
   }
 
   // =========================================================================
-  // Stage-Space Effects & Enlarged Floating Keycap Popups (Fade-Out!)
+  // Stage-Space Captions, Effects & Enlarged Keycap Popups
   // =========================================================================
   function drawTrioCaptions(placements) {
     if (currentView !== 'all') return;
@@ -3692,6 +3545,26 @@
         if (i === 0) ctx.moveTo(Math.cos(a) * rad, Math.sin(a) * rad);
         else ctx.lineTo(Math.cos(a) * rad, Math.sin(a) * rad);
       }
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+
+    for (const h of inputState.hearts) {
+      const t = h.life / h.maxLife;
+      const alpha = t < 0.2 ? t / 0.2 : 1 - easeOutCubic((t - 0.2) / 0.8);
+      const s = h.size * (0.72 + 0.32 * Math.sin(Math.min(1, t * 3) * Math.PI * 0.5));
+      ctx.save();
+      ctx.translate(h.x, h.y);
+      ctx.rotate(h.rot);
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = '#FF7E9D';
+      ctx.beginPath();
+      ctx.moveTo(0, s * 0.3);
+      ctx.bezierCurveTo(-s * 0.15, -s * 0.4, -s * 1.1, -s * 0.2, -s * 0.85, s * 0.36);
+      ctx.bezierCurveTo(-s * 0.68, s * 0.8, -s * 0.12, s * 1.0, 0, s * 1.15);
+      ctx.bezierCurveTo(s * 0.12, s * 1.0, s * 0.68, s * 0.8, s * 0.85, s * 0.36);
+      ctx.bezierCurveTo(s * 1.1, -s * 0.2, s * 0.15, -s * 0.4, 0, s * 0.3);
       ctx.closePath();
       ctx.fill();
       ctx.restore();
@@ -3848,6 +3721,11 @@
     requestAnimationFrame(renderFrame);
   }
 
+  window.addEventListener('resize', () => {
+    resizeCanvas();
+    drawScene();
+  });
+  resizeCanvas();
   syncThemeUI();
   drawScene();
   requestAnimationFrame(renderFrame);
