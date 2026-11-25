@@ -164,49 +164,46 @@
   }
 
   // =========================================================================
-  // Local Puppy + Unobstructed Front Desk Geometry
+  // Local Puppy + Unobstructed Front Desk Geometry (Keyboard Left, Mouse Right!)
   // =========================================================================
   // Coordinate system per puppy unit (around (cx, baseY)):
-  //   Puppy squats cleanly ABOVE y = 0:
-  //     - Head & Ears: y = -302 .. -120
-  //     - Torso & Hind Paws: y = -134 .. -16
-  //     - Resting Squatting Front Paws: bottom at y = +4 (centered at DOG_X ± 35, y = -6)
-  //   Keyboard & Mouse sit cleanly IN FRONT OF (BELOW) the puppy (y >= +22):
-  //     - ZERO overlap with the puppy! Puppy's full squatting body & paws are 100% visible!
-  //     - Paws stay tucked in the squatting pose until user presses a key or moves/clicks mouse!
-  const DOG_X = 6;
+  //   - Puppy squats cleanly ABOVE y = 0 (resting front toes at y = +4)
+  //   - Keyboard sits on the left-center [-176, +72], cleanly below puppy (top edge = +9)
+  //   - Mouse Pad & User-Perspective Mouse sit on the RIGHT [+102, +184],
+  //     separated from the keyboard by a 30px gap (not touching!)
+  const DOG_X = -12;
 
   const KB_LOCAL = {
-    cx: 36,
-    cy: 53, // Top edge = 53 - 44 = +9 (clean unobstructed gap below puppy's front toes at +4!)
-    w: 258,
-    h: 88,
-    angle: 0.018,
-    padX: 7,
-    padY: 7,
-    gap: 2.3,
+    cx: -43,
+    cy: 52, // Top edge = 52 - 43 = +9 (clean unobstructed gap below puppy's front toes at +4!)
+    w: 248,
+    h: 86,
+    angle: -0.015,
+    padX: 6.8,
+    padY: 6.8,
+    gap: 2.2,
   };
 
   const MOUSE_PAD_LOCAL = {
-    cx: -124,
-    cy: 54, // Top edge = 54 - 38 = +16
-    w: 82,
-    h: 76,
+    cx: 126, // Left edge = 126 - 38 = +88 -> 7px snug gap from keyboard right edge (+81)!
+    cy: 54,
+    w: 76,
+    h: 78,
   };
 
   const MOUSE_BOUNDS_LOCAL = {
-    minX: -137,
-    maxX: -111,
-    minY: 43,
-    maxY: 66,
+    minX: 114,
+    maxX: 138,
+    minY: 44,
+    maxY: 64,
   };
 
   const MOUSE_SIZE_LOCAL = {
     w: 46,
-    h: 62,
+    h: 64,
   };
 
-  const INIT_MOUSE_LX = -124;
+  const INIT_MOUSE_LX = 126;
   const INIT_MOUSE_LY = 54;
 
   // Squatting front-paw home coordinates (exact resting paw center under fixed shoulder pivot!)
@@ -415,22 +412,23 @@
       lookY: 0,
       targetLookX: 0,
       targetLookY: 0,
-      // Left paw: defaults to 'squat' (tucked on ground!). Only reaches out on left-key OR mouse move/click!
+      // Left paw: defaults to 'squat'. Reaches out onto left-hand keyboard keys!
       leftPaw: {
         x: LEFT_SQUAT_HOME_X,
         y: LEFT_SQUAT_HOME_Y,
         targetX: LEFT_SQUAT_HOME_X,
         targetY: LEFT_SQUAT_HOME_Y,
-        mode: 'squat', // 'squat' | 'mouse' | 'keyboard'
+        prevX: LEFT_SQUAT_HOME_X,
+        prevY: LEFT_SQUAT_HOME_Y,
+        ghostAlpha: 0,
+        mode: 'squat', // 'squat' | 'keyboard'
         activeKeyCode: null,
         holdUntil: 0,
-        clickShiftX: 0,
-        clickShiftY: 0,
         lift: 0,
         press: 0,
-        isExtended: false, // true whenever paw has left the resting squat pose
+        isExtended: false,
       },
-      // Right paw: defaults to 'squat' (tucked on ground!). Only reaches out on right-key!
+      // Right paw: defaults to 'squat'. Reaches out onto right-hand keys OR the right-side Mouse!
       rightPaw: {
         x: RIGHT_SQUAT_HOME_X,
         y: RIGHT_SQUAT_HOME_Y,
@@ -439,9 +437,11 @@
         prevX: RIGHT_SQUAT_HOME_X,
         prevY: RIGHT_SQUAT_HOME_Y,
         ghostAlpha: 0,
-        mode: 'squat', // 'squat' | 'keyboard'
+        mode: 'squat', // 'squat' | 'mouse' | 'keyboard'
         activeKeyCode: null,
         holdUntil: 0,
+        clickShiftX: 0,
+        clickShiftY: 0,
         lift: 0,
         press: 0,
         isExtended: false,
@@ -804,13 +804,16 @@
       inputState.middleDown ||
       inputState.time < inputState.mouseActiveUntil;
 
-    let useLeft = keyObj.hand === 'left';
-    if (useLeft && mouseBusy) {
-      useLeft = false;
+    let useRight = keyObj.hand === 'right';
+    if (useRight && mouseBusy) {
+      useRight = false;
     }
 
-    if (useLeft) {
+    if (!useRight) {
       const lp = st.leftPaw;
+      lp.prevX = lp.x;
+      lp.prevY = lp.y;
+      lp.ghostAlpha = lp.isExtended ? 0.34 : 0.16;
       lp.mode = 'keyboard';
       lp.isExtended = true;
       lp.activeKeyCode = keyObj.code;
@@ -822,11 +825,11 @@
       const rp = st.rightPaw;
       rp.prevX = rp.x;
       rp.prevY = rp.y;
-      rp.ghostAlpha = rp.isExtended ? 0.36 : 0.18;
+      rp.ghostAlpha = rp.isExtended ? 0.34 : 0.16;
       rp.mode = 'keyboard';
       rp.isExtended = true;
       rp.activeKeyCode = keyObj.code;
-      rp.targetX = keyObj.code === 'Space' ? keyObj.ux + 16 : keyObj.ux;
+      rp.targetX = keyObj.code === 'Space' ? keyObj.ux + 14 : keyObj.ux;
       rp.targetY = keyObj.uy - 3;
       rp.holdUntil = inputState.time + 0.36;
       st.rightEarKick = 1;
@@ -948,12 +951,12 @@
 
     for (const dogObj of Object.values(dogs)) {
       const st = dogObj.state;
-      st.leftPaw.mode = 'mouse';
-      st.leftPaw.isExtended = true;
-      st.leftPaw.activeKeyCode = null;
-      st.targetLookX = (nx - 0.5) * 1.2 - 0.25;
-      st.targetLookY = 0.35 + (ny - 0.5) * 0.45;
-      st.targetLeanX = -14 + (nx - 0.5) * 8;
+      st.rightPaw.mode = 'mouse';
+      st.rightPaw.isExtended = true;
+      st.rightPaw.activeKeyCode = null;
+      st.targetLookX = 0.3 + (nx - 0.5) * 0.9;
+      st.targetLookY = 0.38 + (ny - 0.5) * 0.42;
+      st.targetLeanX = 14 + (nx - 0.5) * 8;
     }
   }
 
@@ -978,7 +981,7 @@
 
     for (const p of placements) {
       const st = p.dog.state;
-      st.leftEarKick = 0.95;
+      st.rightEarKick = 0.95;
       st.bounce = 0.72;
       st.excitement = Math.min(1, st.excitement + 0.24);
     }
@@ -987,10 +990,11 @@
       inputState.leftDown = true;
       inputState.leftGlow = 1;
       for (const p of placements) {
-        const mPos = unitToStage(p, inputState.mouseLX - 12, inputState.mouseLY + 16);
+        // Top-Left button (User perspective!)
+        const mPos = unitToStage(p, inputState.mouseLX - 11, inputState.mouseLY - 14);
         spawnRipple(mPos.sx, mPos.sy, '#FF7849', 34 * p.scale);
         spawnSparkles(mPos.sx, mPos.sy, '#FF7849', placements.length > 1 ? 3 : 5);
-        spawnMouseBadge(mPos.sx - 6, mPos.sy + 36 * p.scale, '左键', '#FF6B42');
+        spawnMouseBadge(mPos.sx - 8, mPos.sy + 58 * p.scale, '左键', '#FF6B42');
       }
       playMouseClickSound(false);
       incrementAction('点击鼠标左键');
@@ -998,10 +1002,11 @@
       inputState.rightDown = true;
       inputState.rightGlow = 1;
       for (const p of placements) {
-        const mPos = unitToStage(p, inputState.mouseLX + 12, inputState.mouseLY + 16);
+        // Top-Right button (User perspective!)
+        const mPos = unitToStage(p, inputState.mouseLX + 11, inputState.mouseLY - 14);
         spawnRipple(mPos.sx, mPos.sy, '#38BDF8', 34 * p.scale);
         spawnSparkles(mPos.sx, mPos.sy, '#38BDF8', placements.length > 1 ? 3 : 5);
-        spawnMouseBadge(mPos.sx + 6, mPos.sy + 36 * p.scale, '右键', '#0EA5E9');
+        spawnMouseBadge(mPos.sx + 8, mPos.sy + 58 * p.scale, '右键', '#0EA5E9');
       }
       playMouseClickSound(true);
       incrementAction('点击鼠标右键');
@@ -1010,9 +1015,9 @@
       inputState.middleDown = true;
       inputState.middleGlow = 1;
       for (const p of placements) {
-        const mPos = unitToStage(p, inputState.mouseLX, inputState.mouseLY + 14);
+        const mPos = unitToStage(p, inputState.mouseLX, inputState.mouseLY - 14);
         spawnRipple(mPos.sx, mPos.sy, '#A78BFA', 30 * p.scale);
-        spawnMouseBadge(mPos.sx, mPos.sy + 36 * p.scale, '中键', '#8B5CF6');
+        spawnMouseBadge(mPos.sx, mPos.sy + 58 * p.scale, '中键', '#8B5CF6');
       }
       playMouseClickSound(true);
       incrementAction('点击鼠标中键');
@@ -1039,8 +1044,8 @@
       inputState.mouseActiveUntil = Math.max(inputState.mouseActiveUntil, inputState.time + 0.65);
       for (const dogObj of Object.values(dogs)) {
         const st = dogObj.state;
-        st.leftPaw.mode = 'mouse';
-        st.leftPaw.isExtended = true;
+        st.rightPaw.mode = 'mouse';
+        st.rightPaw.isExtended = true;
         st.excitement = Math.min(1, st.excitement + 0.08);
       }
     },
@@ -1163,32 +1168,14 @@
       const rightHomeX = bodyX + 35;
       const rightHomeY = RIGHT_SQUAT_HOME_Y;
 
-      // ---- LEFT PAW STATE MACHINE ('squat' <-> 'mouse' / 'keyboard') ----
+      // ---- LEFT PAW STATE MACHINE ('squat' <-> 'keyboard') ----
       const lp = st.leftPaw;
-      const leftKeyWanted = lp.mode === 'keyboard' && (lp.activeKeyCode !== null || inputState.time < lp.holdUntil);
+      const leftKeyWanted = lp.activeKeyCode !== null || inputState.time < lp.holdUntil;
 
       if (leftKeyWanted) {
+        lp.mode = 'keyboard';
         lp.isExtended = true;
-      } else if (mouseWanted) {
-        lp.mode = 'mouse';
-        lp.isExtended = true;
-        let cShiftX = 0;
-        let cShiftY = 0;
-        if (inputState.leftDown || inputState.leftGlow > 0.3) {
-          const s = Math.max(inputState.leftDown ? 1 : 0, inputState.leftGlow);
-          cShiftX = -4.5 * s;
-          cShiftY = 3.5 * s;
-        } else if (inputState.rightDown || inputState.rightGlow > 0.3) {
-          const s = Math.max(inputState.rightDown ? 1 : 0, inputState.rightGlow);
-          cShiftX = 4.5 * s;
-          cShiftY = 3.5 * s;
-        }
-        lp.clickShiftX = lerp(lp.clickShiftX, cShiftX, 1 - Math.exp(-dt * 26));
-        lp.clickShiftY = lerp(lp.clickShiftY, cShiftY, 1 - Math.exp(-dt * 26));
-        lp.targetX = inputState.mouseLX + 2 + lp.clickShiftX;
-        lp.targetY = inputState.mouseLY - 16 + lp.clickShiftY;
       } else {
-        // Retract back to pure squatting pose!
         lp.mode = 'squat';
         lp.targetX = leftHomeX;
         lp.targetY = leftHomeY;
@@ -1197,6 +1184,7 @@
       const lpDist = Math.hypot(lp.targetX - lp.x, lp.targetY - lp.y);
       lp.x = lerp(lp.x, lp.targetX, pawFollow);
       lp.y = lerp(lp.y, lp.targetY, pawFollow);
+      lp.ghostAlpha = Math.max(0, (lp.ghostAlpha || 0) - dt * 3.8);
 
       const lpDistFromHome = Math.hypot(lp.x - leftHomeX, lp.y - leftHomeY);
       if (lp.mode === 'squat' && lpDist < 0.6) {
@@ -1207,22 +1195,35 @@
         lp.isExtended = true;
       }
 
-      const lpClicking =
-        lp.mode === 'mouse'
-          ? anyMouseHeld
-          : lp.mode === 'keyboard' && lp.activeKeyCode !== null && lpDist < 16;
-      lp.lift = lerp(lp.lift, clamp(lpDist / 58, 0, 0.85), 1 - Math.exp(-dt * 22));
-      lp.press = lerp(lp.press, lpClicking ? 1 : 0, 1 - Math.exp(-dt * 28));
+      lp.lift = lerp(lp.lift, clamp(lpDist / 55, 0, 0.85), 1 - Math.exp(-dt * 24));
+      lp.press = lerp(lp.press, leftKeyWanted && lpDist < 16 ? 1 : 0, 1 - Math.exp(-dt * 30));
 
-      // ---- RIGHT PAW STATE MACHINE ('squat' <-> 'keyboard') ----
+      // ---- RIGHT PAW STATE MACHINE ('squat' <-> 'mouse' / 'keyboard') ----
       const rp = st.rightPaw;
-      const rightKeyWanted = rp.activeKeyCode !== null || inputState.time < rp.holdUntil;
+      const rightKeyWanted =
+        rp.mode === 'keyboard' && (rp.activeKeyCode !== null || inputState.time < rp.holdUntil);
 
       if (rightKeyWanted) {
-        rp.mode = 'keyboard';
         rp.isExtended = true;
+      } else if (mouseWanted) {
+        rp.mode = 'mouse';
+        rp.isExtended = true;
+        let cShiftX = 0;
+        let cShiftY = 0;
+        if (inputState.leftDown || inputState.leftGlow > 0.3) {
+          const s = Math.max(inputState.leftDown ? 1 : 0, inputState.leftGlow);
+          cShiftX = -10.5 * s;
+          cShiftY = 3.5 * s;
+        } else if (inputState.rightDown || inputState.rightGlow > 0.3) {
+          const s = Math.max(inputState.rightDown ? 1 : 0, inputState.rightGlow);
+          cShiftX = 10.5 * s;
+          cShiftY = 3.5 * s;
+        }
+        rp.clickShiftX = lerp(rp.clickShiftX, cShiftX, 1 - Math.exp(-dt * 26));
+        rp.clickShiftY = lerp(rp.clickShiftY, cShiftY, 1 - Math.exp(-dt * 26));
+        rp.targetX = inputState.mouseLX + rp.clickShiftX;
+        rp.targetY = inputState.mouseLY - 33 + rp.clickShiftY;
       } else {
-        // Retract back to pure squatting pose!
         rp.mode = 'squat';
         rp.targetX = rightHomeX;
         rp.targetY = rightHomeY;
@@ -1242,8 +1243,12 @@
         rp.isExtended = true;
       }
 
-      rp.lift = lerp(rp.lift, clamp(rpDist / 55, 0, 0.85), 1 - Math.exp(-dt * 24));
-      rp.press = lerp(rp.press, rightKeyWanted && rpDist < 16 ? 1 : 0, 1 - Math.exp(-dt * 30));
+      const rpClicking =
+        rp.mode === 'mouse'
+          ? anyMouseHeld
+          : rp.mode === 'keyboard' && rp.activeKeyCode !== null && rpDist < 16;
+      rp.lift = lerp(rp.lift, clamp(rpDist / 58, 0, 0.85), 1 - Math.exp(-dt * 22));
+      rp.press = lerp(rp.press, rpClicking ? 1 : 0, 1 - Math.exp(-dt * 28));
     }
 
     // Enlarged floating keycaps (pop-up + smooth gradient fade-out!)
@@ -3078,7 +3083,8 @@
 
     const hw = MOUSE_SIZE_LOCAL.w * 0.5;
     const hh = MOUSE_SIZE_LOCAL.h * 0.5;
-    const splitY = 1;
+    // User-Perspective Mouse: Top half [-hh, splitY] = L | Wheel | R buttons; Bottom half [splitY, +hh] = Palm rest!
+    const splitY = 2;
 
     c.save();
     c.translate(inputState.mouseLX, inputState.mouseLY);
@@ -3089,23 +3095,25 @@
     c.ellipse(1.5, 5, hw * 1.04, hh * 0.98, 0, 0, Math.PI * 2);
     c.fill();
 
+    // Top-Left (L) outer glow aura
     if (inputState.leftGlow > 0.04) {
-      const lAura = c.createRadialGradient(-hw * 0.45, hh * 0.45, 2, -hw * 0.45, hh * 0.45, 42);
+      const lAura = c.createRadialGradient(-hw * 0.45, -hh * 0.45, 2, -hw * 0.45, -hh * 0.45, 42);
       lAura.addColorStop(0, `rgba(255, 116, 68, ${(0.78 * inputState.leftGlow).toFixed(3)})`);
       lAura.addColorStop(1, 'rgba(255, 116, 68, 0)');
       c.fillStyle = lAura;
       c.beginPath();
-      c.arc(-hw * 0.45, hh * 0.45, 42, 0, Math.PI * 2);
+      c.arc(-hw * 0.45, -hh * 0.45, 42, 0, Math.PI * 2);
       c.fill();
     }
 
+    // Top-Right (R) outer glow aura
     if (inputState.rightGlow > 0.04) {
-      const rAura = c.createRadialGradient(hw * 0.45, hh * 0.45, 2, hw * 0.45, hh * 0.45, 42);
+      const rAura = c.createRadialGradient(hw * 0.45, -hh * 0.45, 2, hw * 0.45, -hh * 0.45, 42);
       rAura.addColorStop(0, `rgba(56, 189, 248, ${(0.78 * inputState.rightGlow).toFixed(3)})`);
       rAura.addColorStop(1, 'rgba(56, 189, 248, 0)');
       c.fillStyle = rAura;
       c.beginPath();
-      c.arc(hw * 0.45, hh * 0.45, 42, 0, Math.PI * 2);
+      c.arc(hw * 0.45, -hh * 0.45, 42, 0, Math.PI * 2);
       c.fill();
     }
 
@@ -3120,51 +3128,60 @@
     c.fillStyle = bodyGrad;
     c.fillRect(-hw - 4, -hh - 4, hw * 2 + 8, hh * 2 + 8);
 
+    // LEFT BUTTON HIGHLIGHT (Top-Left Half — User Perspective!)
     if (inputState.leftGlow > 0.02) {
       c.save();
       c.beginPath();
-      c.rect(-hw - 4, splitY, hw + 4, hh - splitY + 4);
+      c.rect(-hw - 4, -hh - 4, hw + 4, hh + splitY + 4);
       c.clip();
-      const lg = c.createLinearGradient(-hw, splitY, 0, hh);
-      lg.addColorStop(0, `rgba(255, 158, 112, ${inputState.leftGlow.toFixed(3)})`);
+      const lg = c.createLinearGradient(-hw, -hh, 0, splitY);
+      lg.addColorStop(0, `rgba(255, 162, 116, ${inputState.leftGlow.toFixed(3)})`);
       lg.addColorStop(0.55, `rgba(255, 112, 66, ${inputState.leftGlow.toFixed(3)})`);
       lg.addColorStop(1, `rgba(235, 74, 38, ${inputState.leftGlow.toFixed(3)})`);
       c.fillStyle = lg;
-      c.fillRect(-hw - 4, splitY, hw + 4, hh - splitY + 4);
+      c.fillRect(-hw - 4, -hh - 4, hw + 4, hh + splitY + 4);
       c.restore();
     }
 
+    // RIGHT BUTTON HIGHLIGHT (Top-Right Half — User Perspective!)
     if (inputState.rightGlow > 0.02) {
       c.save();
       c.beginPath();
-      c.rect(0, splitY, hw + 4, hh - splitY + 4);
+      c.rect(0, -hh - 4, hw + 4, hh + splitY + 4);
       c.clip();
-      const rg = c.createLinearGradient(0, splitY, hw, hh);
-      rg.addColorStop(0, `rgba(125, 224, 255, ${inputState.rightGlow.toFixed(3)})`);
+      const rg = c.createLinearGradient(0, -hh, hw, splitY);
+      rg.addColorStop(0, `rgba(130, 226, 255, ${inputState.rightGlow.toFixed(3)})`);
       rg.addColorStop(0.55, `rgba(56, 189, 248, ${inputState.rightGlow.toFixed(3)})`);
       rg.addColorStop(1, `rgba(14, 146, 224, ${inputState.rightGlow.toFixed(3)})`);
       c.fillStyle = rg;
-      c.fillRect(0, splitY, hw + 4, hh - splitY + 4);
+      c.fillRect(0, -hh - 4, hw + 4, hh + splitY + 4);
       c.restore();
     }
 
+    // Crisp seam splitting Top L/R Buttons vs Lower Palm Shell
     c.strokeStyle = 'rgba(72, 82, 98, 0.5)';
     c.lineWidth = 1.5;
     c.beginPath();
     c.moveTo(-hw, splitY);
-    c.quadraticCurveTo(0, splitY - 2.5, hw, splitY);
-    c.moveTo(0, splitY - 1);
-    c.lineTo(0, hh);
+    c.quadraticCurveTo(0, splitY + 2.5, hw, splitY);
+    c.moveTo(0, -hh);
+    c.lineTo(0, splitY + 1);
     c.stroke();
 
     c.font = '800 9px -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif';
     c.textAlign = 'center';
     c.textBaseline = 'middle';
-    c.fillStyle = inputState.leftGlow > 0.35 ? '#FFFFFF' : 'rgba(72, 65, 62, 0.5)';
-    c.fillText('L', -hw * 0.54, hh * 0.48);
+    c.fillStyle = inputState.leftGlow > 0.35 ? '#FFFFFF' : 'rgba(72, 65, 62, 0.52)';
+    c.fillText('L', -hw * 0.54, -hh * 0.38);
 
-    c.fillStyle = inputState.rightGlow > 0.35 ? '#FFFFFF' : 'rgba(72, 65, 62, 0.5)';
-    c.fillText('R', hw * 0.54, hh * 0.48);
+    c.fillStyle = inputState.rightGlow > 0.35 ? '#FFFFFF' : 'rgba(72, 65, 62, 0.52)';
+    c.fillText('R', hw * 0.54, -hh * 0.38);
+
+    // Subtle glossy reflection on lower palm rest
+    c.fillStyle = 'rgba(255, 255, 255, 0.52)';
+    c.beginPath();
+    c.ellipse(-4, hh * 0.48, 8, 4.2, -0.2, 0, Math.PI * 2);
+    c.fill();
 
     c.restore();
 
@@ -3176,7 +3193,7 @@
     if (inputState.leftGlow > 0.1) {
       c.save();
       c.beginPath();
-      c.rect(-hw - 5, splitY, hw + 5, hh - splitY + 5);
+      c.rect(-hw - 5, -hh - 5, hw + 5, hh + splitY + 5);
       c.clip();
       defineMouseShellPath(c, hw, hh);
       c.strokeStyle = `rgba(255, 108, 60, ${inputState.leftGlow.toFixed(3)})`;
@@ -3187,7 +3204,7 @@
     if (inputState.rightGlow > 0.1) {
       c.save();
       c.beginPath();
-      c.rect(0, splitY, hw + 5, hh - splitY + 5);
+      c.rect(0, -hh - 5, hw + 5, hh + splitY + 5);
       c.clip();
       defineMouseShellPath(c, hw, hh);
       c.strokeStyle = `rgba(42, 184, 248, ${inputState.rightGlow.toFixed(3)})`;
@@ -3196,10 +3213,11 @@
       c.restore();
     }
 
+    // Top-Center Scroll Wheel (User Perspective!)
     const wheelW = 8.5;
-    const wheelH = 17;
+    const wheelH = 16.5;
     const wheelX = -wheelW * 0.5;
-    const wheelY = 7;
+    const wheelY = -21;
 
     roundRectPath(c, wheelX - 1.5, wheelY - 1.5, wheelW + 3, wheelH + 3, 4.2);
     c.fillStyle = '#D2D7E0';
