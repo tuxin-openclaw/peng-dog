@@ -7,23 +7,22 @@
   const canvas = document.getElementById('petCanvas');
   const ctx = canvas.getContext('2d');
   const statusHintEl = document.getElementById('statusHint');
-  const petCountEl = document.getElementById('petCount');
-  const motionToggleBtn = document.getElementById('motionToggle');
-  const motionIconEl = document.getElementById('motionIcon');
-  const motionLabelEl = document.getElementById('motionLabel');
+  const actionCountEl = document.getElementById('actionCount');
+  const soundToggleBtn = document.getElementById('soundToggle');
+  const soundIconEl = document.getElementById('soundIcon');
+  const soundLabelEl = document.getElementById('soundLabel');
   const themeToggleBtn = document.getElementById('themeToggle');
   const themeIconEl = document.getElementById('themeIcon');
   const themeLabelEl = document.getElementById('themeLabel');
   const exportBtn = document.getElementById('exportBtn');
   const viewTabs = Array.from(document.querySelectorAll('.char-tab'));
 
-  const STAGE_W = 1120;
-  const STAGE_H = 620;
+  const STAGE_W = 1320;
+  const STAGE_H = 660;
 
   // 'all' | 'sunny' (图1 墨镜金毛) | 'daisy' (图2 蓝巾笑柴) | 'kuro' (图3 歪头黑柴)
   let currentView = 'all';
   let isDarkTheme = false;
-  let motionEnabled = true;
 
   const viewport = {
     cssW: window.innerWidth,
@@ -35,16 +34,16 @@
   };
 
   function resizeCanvas() {
-    viewport.cssW = window.innerWidth;
-    viewport.cssH = window.innerHeight;
+    viewport.cssW = Math.max(1, window.innerWidth);
+    viewport.cssH = Math.max(1, window.innerHeight);
     viewport.dpr = Math.min(window.devicePixelRatio || 1, 2.5);
 
     canvas.width = Math.round(viewport.cssW * viewport.dpr);
     canvas.height = Math.round(viewport.cssH * viewport.dpr);
 
-    const padX = 24;
-    const padTop = 66;
-    const padBottom = 56;
+    const padX = 20;
+    const padTop = 62;
+    const padBottom = 52;
     const availW = Math.max(320, viewport.cssW - padX * 2);
     const availH = Math.max(240, viewport.cssH - padTop - padBottom);
 
@@ -53,7 +52,10 @@
     viewport.offsetY = padTop + (availH - STAGE_H * viewport.scale) * 0.5;
   }
 
-  window.addEventListener('resize', resizeCanvas);
+  window.addEventListener('resize', () => {
+    resizeCanvas();
+    drawScene();
+  });
   resizeCanvas();
 
   // =========================================================================
@@ -91,22 +93,346 @@
   initPatterns();
 
   // =========================================================================
-  // Per-Character Live Animation State (Unified Squatting Pose Rig)
+  // Web Audio Synthesizer (Optional Crisp Key & Mouse Sounds)
   // =========================================================================
+  let soundEnabled = false;
+  let audioCtx = null;
+
+  function ensureAudio() {
+    if (!audioCtx) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (AC) audioCtx = new AC();
+    }
+    if (audioCtx && audioCtx.state === 'suspended') {
+      audioCtx.resume().catch(() => {});
+    }
+  }
+
+  function playKeySound(isBigKey = false) {
+    if (!soundEnabled) return;
+    ensureAudio();
+    if (!audioCtx) return;
+
+    const now = audioCtx.currentTime;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    const filter = audioCtx.createBiquadFilter();
+
+    osc.type = 'triangle';
+    const baseFreq = isBigKey ? 165 : 235 + Math.random() * 50;
+    osc.frequency.setValueAtTime(baseFreq * 1.45, now);
+    osc.frequency.exponentialRampToValueAtTime(baseFreq * 0.52, now + 0.045);
+
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(isBigKey ? 940 : 1520, now);
+
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.linearRampToValueAtTime(isBigKey ? 0.14 : 0.1, now + 0.005);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.06);
+
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(audioCtx.destination);
+
+    osc.start(now);
+    osc.stop(now + 0.065);
+  }
+
+  function playMouseClickSound(isRight = false) {
+    if (!soundEnabled) return;
+    ensureAudio();
+    if (!audioCtx) return;
+
+    const now = audioCtx.currentTime;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+
+    osc.type = 'sine';
+    const freq = isRight ? 620 : 760;
+    osc.frequency.setValueAtTime(freq, now);
+    osc.frequency.exponentialRampToValueAtTime(freq * 0.42, now + 0.032);
+
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.linearRampToValueAtTime(0.11, now + 0.003);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.038);
+
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+
+    osc.start(now);
+    osc.stop(now + 0.042);
+  }
+
+  // =========================================================================
+  // Local Desk Geometry (Shared by Every Puppy Unit Around (cx, baseY))
+  // =========================================================================
+  // Inside each puppy unit (scale = 1.0):
+  //   DOG_X = 16 (puppy body center)
+  //   Mouse Pad & Mouse sit on the left: x in [-194, -104]
+  //   65% Mechanical Keyboard sits center-right: x in [-96, +192]
+  //   Total unit span = [-194, +192] (perfectly centered around x = 0!)
+  const DOG_X = 12;
+
+  const KB_LOCAL = {
+    cx: 42,
+    cy: 10,
+    w: 286,
+    h: 102,
+    angle: 0.025,
+    padX: 8,
+    padY: 8,
+    gap: 2.6,
+  };
+
+  const MOUSE_PAD_LOCAL = {
+    cx: -140,
+    cy: 12,
+    w: 90,
+    h: 84,
+  };
+
+  const MOUSE_BOUNDS_LOCAL = {
+    minX: -156,
+    maxX: -124,
+    minY: -2,
+    maxY: 24,
+  };
+
+  const MOUSE_SIZE_LOCAL = {
+    w: 52,
+    h: 72,
+  };
+
+  const INIT_MOUSE_LX = -140;
+  const INIT_MOUSE_LY = 11;
+
+  const isMac = /Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent);
+
+  const KEY_ROWS_SPEC = [
+    [
+      { code: 'Escape', label: 'Esc', popup: 'Esc', w: 1, accent: true, hand: 'left' },
+      { code: 'Digit1', label: '1', shift: '!', popup: '1', w: 1, hand: 'left' },
+      { code: 'Digit2', label: '2', shift: '@', popup: '2', w: 1, hand: 'left' },
+      { code: 'Digit3', label: '3', shift: '#', popup: '3', w: 1, hand: 'left' },
+      { code: 'Digit4', label: '4', shift: '$', popup: '4', w: 1, hand: 'left' },
+      { code: 'Digit5', label: '5', shift: '%', popup: '5', w: 1, hand: 'left' },
+      { code: 'Digit6', label: '6', shift: '^', popup: '6', w: 1, hand: 'right' },
+      { code: 'Digit7', label: '7', shift: '&', popup: '7', w: 1, hand: 'right' },
+      { code: 'Digit8', label: '8', shift: '*', popup: '8', w: 1, hand: 'right' },
+      { code: 'Digit9', label: '9', shift: '(', popup: '9', w: 1, hand: 'right' },
+      { code: 'Digit0', label: '0', shift: ')', popup: '0', w: 1, hand: 'right' },
+      { code: 'Minus', label: '-', shift: '_', popup: '-', w: 1, hand: 'right' },
+      { code: 'Equal', label: '=', shift: '+', popup: '=', w: 1, hand: 'right' },
+      { code: 'Backspace', label: '⌫', popup: '⌫', w: 2, hand: 'right' },
+    ],
+    [
+      { code: 'Tab', label: 'Tab', popup: 'Tab', w: 1.5, hand: 'left' },
+      { code: 'KeyQ', label: 'Q', popup: 'Q', w: 1, hand: 'left' },
+      { code: 'KeyW', label: 'W', popup: 'W', w: 1, hand: 'left' },
+      { code: 'KeyE', label: 'E', popup: 'E', w: 1, hand: 'left' },
+      { code: 'KeyR', label: 'R', popup: 'R', w: 1, hand: 'left' },
+      { code: 'KeyT', label: 'T', popup: 'T', w: 1, hand: 'left' },
+      { code: 'KeyY', label: 'Y', popup: 'Y', w: 1, hand: 'right' },
+      { code: 'KeyU', label: 'U', popup: 'U', w: 1, hand: 'right' },
+      { code: 'KeyI', label: 'I', popup: 'I', w: 1, hand: 'right' },
+      { code: 'KeyO', label: 'O', popup: 'O', w: 1, hand: 'right' },
+      { code: 'KeyP', label: 'P', popup: 'P', w: 1, hand: 'right' },
+      { code: 'BracketLeft', label: '[', shift: '{', popup: '[', w: 1, hand: 'right' },
+      { code: 'BracketRight', label: ']', shift: '}', popup: ']', w: 1, hand: 'right' },
+      { code: 'Backslash', label: '\\', shift: '|', popup: '\\', w: 1.5, hand: 'right' },
+    ],
+    [
+      { code: 'CapsLock', label: 'Caps', popup: 'Caps', w: 1.75, hand: 'left' },
+      { code: 'KeyA', label: 'A', popup: 'A', w: 1, hand: 'left' },
+      { code: 'KeyS', label: 'S', popup: 'S', w: 1, hand: 'left' },
+      { code: 'KeyD', label: 'D', popup: 'D', w: 1, hand: 'left' },
+      { code: 'KeyF', label: 'F', popup: 'F', w: 1, hand: 'left' },
+      { code: 'KeyG', label: 'G', popup: 'G', w: 1, hand: 'left' },
+      { code: 'KeyH', label: 'H', popup: 'H', w: 1, hand: 'right' },
+      { code: 'KeyJ', label: 'J', popup: 'J', w: 1, hand: 'right' },
+      { code: 'KeyK', label: 'K', popup: 'K', w: 1, hand: 'right' },
+      { code: 'KeyL', label: 'L', popup: 'L', w: 1, hand: 'right' },
+      { code: 'Semicolon', label: ';', shift: ':', popup: ';', w: 1, hand: 'right' },
+      { code: 'Quote', label: "'", shift: '"', popup: "'", w: 1, hand: 'right' },
+      { code: 'Enter', label: '⏎', popup: 'Enter', w: 2.25, accent: true, hand: 'right' },
+    ],
+    [
+      { code: 'ShiftLeft', label: '⇧', popup: 'Shift', w: 2.25, accent: true, hand: 'left' },
+      { code: 'KeyZ', label: 'Z', popup: 'Z', w: 1, hand: 'left' },
+      { code: 'KeyX', label: 'X', popup: 'X', w: 1, hand: 'left' },
+      { code: 'KeyC', label: 'C', popup: 'C', w: 1, hand: 'left' },
+      { code: 'KeyV', label: 'V', popup: 'V', w: 1, hand: 'left' },
+      { code: 'KeyB', label: 'B', popup: 'B', w: 1, hand: 'left' },
+      { code: 'KeyN', label: 'N', popup: 'N', w: 1, hand: 'right' },
+      { code: 'KeyM', label: 'M', popup: 'M', w: 1, hand: 'right' },
+      { code: 'Comma', label: ',', shift: '<', popup: ',', w: 1, hand: 'right' },
+      { code: 'Period', label: '.', shift: '>', popup: '.', w: 1, hand: 'right' },
+      { code: 'Slash', label: '/', shift: '?', popup: '/', w: 1, hand: 'right' },
+      { code: 'ShiftRight', label: '⇧', popup: 'Shift', w: 1.75, hand: 'right' },
+      { code: 'ArrowUp', label: '↑', popup: '↑', w: 1, hand: 'right' },
+    ],
+    [
+      { code: 'ControlLeft', label: 'Ctrl', popup: 'Ctrl', w: 1.25, hand: 'left' },
+      { code: 'MetaLeft', label: isMac ? '⌘' : 'Win', popup: isMac ? '⌘' : 'Win', w: 1.25, hand: 'left' },
+      { code: 'AltLeft', label: isMac ? '⌥' : 'Alt', popup: isMac ? 'Opt' : 'Alt', w: 1.25, hand: 'left' },
+      { code: 'Space', label: '', popup: 'Space', w: 5.25, hand: 'right' },
+      { code: 'AltRight', label: isMac ? '⌥' : 'Alt', popup: isMac ? 'Opt' : 'Alt', w: 1, hand: 'right' },
+      { code: 'MetaRight', label: isMac ? '⌘' : 'Win', popup: isMac ? '⌘' : 'Win', w: 1, hand: 'right' },
+      { code: 'ControlRight', label: 'Ctrl', popup: 'Ctrl', w: 1, hand: 'right' },
+      { code: 'ArrowLeft', label: '←', popup: '←', w: 1, hand: 'right' },
+      { code: 'ArrowDown', label: '↓', popup: '↓', w: 1, hand: 'right' },
+      { code: 'ArrowRight', label: '→', popup: '→', w: 1, hand: 'right' },
+    ],
+  ];
+
+  const CODE_ALIAS = {
+    Backquote: { target: 'Escape', popup: '`', shift: '~' },
+    Delete: { target: 'Backspace', popup: 'Del' },
+    Insert: { target: 'Backspace', popup: 'Ins' },
+    F1: { target: 'Digit1', popup: 'F1' },
+    F2: { target: 'Digit2', popup: 'F2' },
+    F3: { target: 'Digit3', popup: 'F3' },
+    F4: { target: 'Digit4', popup: 'F4' },
+    F5: { target: 'Digit5', popup: 'F5' },
+    F6: { target: 'Digit6', popup: 'F6' },
+    F7: { target: 'Digit7', popup: 'F7' },
+    F8: { target: 'Digit8', popup: 'F8' },
+    F9: { target: 'Digit9', popup: 'F9' },
+    F10: { target: 'Digit0', popup: 'F10' },
+    F11: { target: 'Minus', popup: 'F11' },
+    F12: { target: 'Equal', popup: 'F12' },
+    Numpad0: { target: 'Digit0', popup: '0' },
+    Numpad1: { target: 'Digit1', popup: '1' },
+    Numpad2: { target: 'Digit2', popup: '2' },
+    Numpad3: { target: 'Digit3', popup: '3' },
+    Numpad4: { target: 'Digit4', popup: '4' },
+    Numpad5: { target: 'Digit5', popup: '5' },
+    Numpad6: { target: 'Digit6', popup: '6' },
+    Numpad7: { target: 'Digit7', popup: '7' },
+    Numpad8: { target: 'Digit8', popup: '8' },
+    Numpad9: { target: 'Digit9', popup: '9' },
+    NumpadEnter: { target: 'Enter', popup: 'Enter' },
+    NumpadAdd: { target: 'Equal', popup: '+' },
+    NumpadSubtract: { target: 'Minus', popup: '-' },
+    NumpadMultiply: { target: 'Digit8', popup: '*' },
+    NumpadDivide: { target: 'Slash', popup: '/' },
+    NumpadDecimal: { target: 'Period', popup: '.' },
+    Home: { target: 'ArrowLeft', popup: 'Home' },
+    End: { target: 'ArrowRight', popup: 'End' },
+    PageUp: { target: 'ArrowUp', popup: 'PgUp' },
+    PageDown: { target: 'ArrowDown', popup: 'PgDn' },
+    ContextMenu: { target: 'ControlRight', popup: 'Menu' },
+    IntlBackslash: { target: 'Backslash', popup: '\\' },
+    OSLeft: { target: 'MetaLeft', popup: isMac ? '⌘' : 'Win' },
+    OSRight: { target: 'MetaRight', popup: isMac ? '⌘' : 'Win' },
+  };
+
+  const keysList = [];
+  const keyByCode = new Map();
+
+  function kbToUnitLocal(kx, ky) {
+    const cos = Math.cos(KB_LOCAL.angle);
+    const sin = Math.sin(KB_LOCAL.angle);
+    return {
+      ux: KB_LOCAL.cx + kx * cos - ky * sin,
+      uy: KB_LOCAL.cy + kx * sin + ky * cos,
+    };
+  }
+
+  function buildKeyboardGeometry() {
+    const innerW = KB_LOCAL.w - KB_LOCAL.padX * 2;
+    const innerH = KB_LOCAL.h - KB_LOCAL.padY * 2;
+    const numRows = KEY_ROWS_SPEC.length;
+    const rowH = (innerH - KB_LOCAL.gap * (numRows - 1)) / numRows;
+
+    let curY = -KB_LOCAL.h * 0.5 + KB_LOCAL.padY;
+
+    for (const row of KEY_ROWS_SPEC) {
+      const totalUnits = row.reduce((sum, k) => sum + k.w, 0);
+      const unitW = (innerW - KB_LOCAL.gap * (row.length - 1)) / totalUnits;
+      let curX = -KB_LOCAL.w * 0.5 + KB_LOCAL.padX;
+
+      for (const spec of row) {
+        const kw = spec.w * unitW;
+        const lcx = curX + kw * 0.5;
+        const lcy = curY + rowH * 0.5;
+        const { ux, uy } = kbToUnitLocal(lcx, lcy);
+
+        const keyObj = {
+          ...spec,
+          lx: curX,
+          ly: curY,
+          w: kw,
+          h: rowH,
+          lcx,
+          lcy,
+          ux, // X in puppy-unit coordinates
+          uy, // Y in puppy-unit coordinates
+          isDown: false,
+          press: 0,
+          glow: 0,
+        };
+        keysList.push(keyObj);
+        keyByCode.set(keyObj.code, keyObj);
+        curX += kw + KB_LOCAL.gap;
+      }
+      curY += rowH + KB_LOCAL.gap;
+    }
+  }
+
+  buildKeyboardGeometry();
+
+  // =========================================================================
+  // Shared Input & Per-Puppy Animation State
+  // =========================================================================
+  const RIGHT_PAW_REST_UX = KB_LOCAL.cx + 16;
+  const RIGHT_PAW_REST_UY = KB_LOCAL.cy - 6;
+
   function createDogState(phaseOffset, baseTilt) {
     return {
       phaseOffset,
       baseTilt,
       breathPhase: phaseOffset,
-      tailPhase: phaseOffset * 1.7,
+      tailPhase: phaseOffset * 1.6,
       bounce: 0,
-      earKick: 0,
+      leftEarKick: 0,
+      rightEarKick: 0,
       excitement: 0,
-      blinkTimer: 1.8 + phaseOffset * 0.9,
+      blinkTimer: 2.0 + phaseOffset * 0.8,
       blinkProgress: 0,
       glintProgress: 0,
+      leanX: 0,
+      targetLeanX: 0,
       lookX: 0,
       lookY: 0,
+      targetLookX: 0,
+      targetLookY: 0,
+      leftPaw: {
+        x: INIT_MOUSE_LX + 2,
+        y: INIT_MOUSE_LY - 17,
+        targetX: INIT_MOUSE_LX + 2,
+        targetY: INIT_MOUSE_LY - 17,
+        mode: 'mouse',
+        activeKeyCode: null,
+        returnToMouseAt: 0,
+        clickShiftX: 0,
+        clickShiftY: 0,
+        lift: 0,
+        press: 0,
+      },
+      rightPaw: {
+        x: RIGHT_PAW_REST_UX,
+        y: RIGHT_PAW_REST_UY,
+        targetX: RIGHT_PAW_REST_UX,
+        targetY: RIGHT_PAW_REST_UY,
+        prevX: RIGHT_PAW_REST_UX,
+        prevY: RIGHT_PAW_REST_UY,
+        ghostAlpha: 0,
+        activeKeyCode: null,
+        holdUntil: 0,
+        lift: 0,
+        press: 0,
+      },
     };
   }
 
@@ -114,35 +440,60 @@
     sunny: {
       id: 'sunny',
       name: '墨镜金毛',
-      subtitle: '图1 · 垂耳酷金毛（粉领巾/叼骨头）',
-      state: createDogState(0.0, -0.035),
+      subtitle: '图1 · 垂耳酷金毛',
+      state: createDogState(0.0, -0.032),
     },
     daisy: {
       id: 'daisy',
       name: '蓝巾笑柴',
-      subtitle: '图2 · 蓝花巾笑柴（基准蹲坐原画）',
-      state: createDogState(2.1, 0.045),
+      subtitle: '图2 · 蓝花巾笑柴',
+      state: createDogState(2.1, 0.042),
     },
     kuro: {
       id: 'kuro',
       name: '歪头黑柴',
-      subtitle: '图3 · 豆眉小黑柴（蓬松胸毛/三色爪）',
-      state: createDogState(4.2, 0.092),
+      subtitle: '图3 · 豆眉小黑柴',
+      state: createDogState(4.2, 0.088),
     },
   };
 
-  const scene = {
+  const inputState = {
     time: 0,
-    petCount: 0,
-    pointerStageX: STAGE_W * 0.5,
-    pointerStageY: STAGE_H * 0.45,
-    pointerActive: false,
-    FloatingHearts: [],
+    actionCount: 0,
+    shiftDown: false,
+    metaDown: false,
+    activeCodes: new Set(),
+    metaPressedCodes: new Set(),
+
+    // Normalized & local mouse coordinates shared across every puppy's mouse pad
+    mouseNormX: 0.5,
+    mouseNormY: 0.5,
+    mouseLX: INIT_MOUSE_LX,
+    mouseLY: INIT_MOUSE_LY,
+    mouseTargetLX: INIT_MOUSE_LX,
+    mouseTargetLY: INIT_MOUSE_LY,
+    mouseVx: 0,
+    mouseTilt: 0.03,
+    mouseActivityGlow: 0,
+
+    leftDown: false,
+    rightDown: false,
+    middleDown: false,
+    leftGlow: 0,
+    rightGlow: 0,
+    middleGlow: 0,
+    wheelOffset: 0,
+    wheelVel: 0,
+
+    // Stage-space visual effects (Enlarged Keycap Popups, Ripples, Sparkles, Click Badges)
+    popups: [],
     ripples: [],
+    particles: [],
+    mouseBadges: [],
   };
 
   // =========================================================================
-  // Math & Path Helpers
+  // Math & Stage Layout Helpers
   // =========================================================================
   function clamp(v, min, max) {
     return Math.max(min, Math.min(max, v));
@@ -156,6 +507,13 @@
     return 1 - Math.pow(1 - clamp(t, 0, 1), 3);
   }
 
+  function easeOutBack(t) {
+    const c1 = 1.70158;
+    const c3 = c1 + 1;
+    const x = clamp(t, 0, 1);
+    return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2);
+  }
+
   function roundRectPath(c, x, y, w, h, r) {
     const rad = Math.min(r, w * 0.5, h * 0.5);
     c.beginPath();
@@ -167,21 +525,192 @@
     c.closePath();
   }
 
-  // Returns active puppy placements on the stage for rendering & hit-testing
   function getActivePlacements() {
     if (currentView === 'all') {
       return [
-        { dog: dogs.sunny, cx: 215, groundY: 468, scale: 0.9 },
-        { dog: dogs.daisy, cx: 560, groundY: 468, scale: 0.9 },
-        { dog: dogs.kuro, cx: 905, groundY: 468, scale: 0.9 },
+        { dog: dogs.sunny, cx: 235, baseY: 468, scale: 0.96 },
+        { dog: dogs.daisy, cx: 660, baseY: 468, scale: 0.96 },
+        { dog: dogs.kuro, cx: 1085, baseY: 468, scale: 0.96 },
       ];
     }
     const target = dogs[currentView] || dogs.daisy;
-    return [{ dog: target, cx: STAGE_W * 0.5, groundY: 498, scale: 1.18 }];
+    return [{ dog: target, cx: STAGE_W * 0.5, baseY: 486, scale: 1.28 }];
+  }
+
+  function unitToStage(placement, ux, uy) {
+    return {
+      sx: placement.cx + ux * placement.scale,
+      sy: placement.baseY + uy * placement.scale,
+    };
+  }
+
+  function incrementAction(hintText) {
+    inputState.actionCount += 1;
+    actionCountEl.textContent = String(inputState.actionCount);
+    if (hintText) statusHintEl.textContent = hintText;
+  }
+
+  function spawnRipple(x, y, color, maxRadius = 32) {
+    inputState.ripples.push({ x, y, color, maxRadius, life: 0, maxLife: 0.36 });
+  }
+
+  function spawnSparkles(x, y, color, count = 4) {
+    for (let i = 0; i < count; i++) {
+      const angle = (Math.PI * 2 * i) / count + (Math.random() - 0.5) * 0.6;
+      const speed = 42 + Math.random() * 68;
+      inputState.particles.push({
+        x,
+        y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed - 22,
+        size: 2.8 + Math.random() * 3.0,
+        color,
+        life: 0,
+        maxLife: 0.36 + Math.random() * 0.2,
+        rot: Math.random() * Math.PI,
+        vRot: (Math.random() - 0.5) * 8,
+      });
+    }
+  }
+
+  function spawnMouseBadge(x, y, text, color) {
+    inputState.mouseBadges.push({ x, y, text, color, life: 0, maxLife: 0.72 });
   }
 
   // =========================================================================
-  // Controls & Interaction
+  // Enlarged Floating Keycap Popups (Pop-Up + Smooth Gradient Fade-Out!)
+  // =========================================================================
+  function getKeyDisplayInfo(e, keyObj, alias) {
+    if (alias) {
+      let main = alias.popup;
+      if (e.shiftKey && alias.shift) main = alias.shift;
+      return {
+        main,
+        widthFactor: main.length >= 4 ? 1.52 : main.length >= 3 ? 1.28 : 1.0,
+      };
+    }
+    if (keyObj) {
+      let main = keyObj.popup || keyObj.label || 'Key';
+      if (e.shiftKey && keyObj.shift) main = keyObj.shift;
+      let widthFactor = 1.0;
+      if (keyObj.code === 'Space') widthFactor = 2.0;
+      else if (main.length >= 5) widthFactor = 1.62;
+      else if (main.length >= 3) widthFactor = 1.32;
+      return { main, widthFactor };
+    }
+    const rawKey =
+      e.key && e.key !== 'Process' && e.key !== 'Unidentified'
+        ? e.key.length === 1
+          ? e.key.toUpperCase()
+          : e.key.slice(0, 5)
+        : (e.code || 'Key').slice(0, 5);
+    return {
+      main: rawKey,
+      widthFactor: rawKey.length >= 3 ? 1.38 : 1.0,
+    };
+  }
+
+  function spawnOrPulseKeyPopup(code, keyObj, displayInfo, isRepeat) {
+    if (isRepeat) {
+      const existing = [...inputState.popups].reverse().find((p) => p.code === code && p.isHeld);
+      if (existing) {
+        existing.pulse = 1;
+        existing.holdElapsed = 0;
+        return;
+      }
+    }
+
+    const placements = getActivePlacements();
+    // Anchor rising trail from center puppy in 'all' view or active puppy in single view
+    const anchorPlacement = placements.length === 3 ? placements[1] : placements[0];
+    const keyUX = keyObj ? keyObj.ux : KB_LOCAL.cx;
+    const keyUY = keyObj ? keyObj.uy : KB_LOCAL.cy;
+    const startPos = unitToStage(anchorPlacement, keyUX, keyUY - 8);
+
+    const boxH = 74;
+    const boxW = Math.round(74 * displayInfo.widthFactor);
+    const isLeftSide = keyObj ? keyObj.hand === 'left' : false;
+
+    let targetX;
+    let targetY;
+
+    if (currentView === 'all') {
+      // Upper showcase strip cleanly above all three puppies' ears!
+      const normKeyX = clamp((keyUX - KB_LOCAL.cx) / (KB_LOCAL.w * 0.5), -1, 1);
+      targetX = STAGE_W * 0.5 + normKeyX * 260;
+      targetY = 112;
+
+      const fresh = inputState.popups.filter((p) => p.fadeProgress < 0.45);
+      for (let attempt = 0; attempt < 6; attempt++) {
+        let overlap = false;
+        for (const other of fresh) {
+          const minX = (boxW + other.w) * 0.5 + 14;
+          const minY = 66;
+          if (Math.abs(targetX - other.targetX) < minX && Math.abs(targetY - other.targetY) < minY) {
+            const dir = attempt % 2 === 0 ? 1 : -1;
+            targetX += dir * (minX + 6) * Math.ceil((attempt + 1) / 2);
+            targetX = clamp(targetX, 90 + boxW * 0.5, STAGE_W - 90 - boxW * 0.5);
+            overlap = true;
+          }
+        }
+        if (!overlap) break;
+      }
+    } else {
+      // Single-character view: generous left & right flanking showcase zones!
+      targetX = isLeftSide
+        ? clamp(225 + (keyUX - KB_LOCAL.cx) * 0.35, 95 + boxW * 0.5, 345 - boxW * 0.5)
+        : clamp(1095 + (keyUX - KB_LOCAL.cx) * 0.35, 975 + boxW * 0.5, 1225 - boxW * 0.5);
+      targetY = 230;
+
+      const fresh = inputState.popups.filter((p) => p.fadeProgress < 0.45);
+      for (let attempt = 0; attempt < 5; attempt++) {
+        let overlap = false;
+        for (const other of fresh) {
+          const minX = (boxW + other.w) * 0.5 + 12;
+          const minY = 68;
+          if (Math.abs(targetX - other.targetX) < minX && Math.abs(targetY - other.targetY) < minY) {
+            targetY -= 72;
+            if (targetY < 96) {
+              targetY = 295;
+              targetX += isLeftSide ? -52 : 52;
+              targetX = clamp(targetX, 80 + boxW * 0.5, STAGE_W - 80 - boxW * 0.5);
+            }
+            overlap = true;
+          }
+        }
+        if (!overlap) break;
+      }
+    }
+
+    if (inputState.popups.length >= 6) {
+      inputState.popups[0].fastFade = true;
+      inputState.popups[0].isHeld = false;
+    }
+
+    inputState.popups.push({
+      code,
+      main: displayInfo.main,
+      w: boxW,
+      h: boxH,
+      startX: startPos.sx,
+      startY: startPos.sy,
+      x: startPos.sx,
+      y: startPos.sy,
+      targetX,
+      targetY,
+      age: 0,
+      holdElapsed: 0,
+      fadeElapsed: 0,
+      fadeProgress: 0,
+      isHeld: true,
+      fastFade: false,
+      pulse: 1,
+      isAccent: Boolean(keyObj && keyObj.accent),
+    });
+  }
+
+  // =========================================================================
+  // HUD Controls & Global Keyboard / Mouse Listeners
   // =========================================================================
   function syncThemeUI() {
     document.body.classList.toggle('theme-dark', isDarkTheme);
@@ -198,18 +727,19 @@
       btn.classList.toggle('is-active', active);
       btn.setAttribute('aria-pressed', String(active));
     }
-    const placements = getActivePlacements();
-    for (const { dog } of placements) {
-      dog.state.bounce = 1;
-      dog.state.earKick = 0.9;
-      dog.state.excitement = Math.max(dog.state.excitement, 0.55);
+
+    for (const { dog } of getActivePlacements()) {
+      dog.state.bounce = 0.9;
+      dog.state.leftEarKick = 0.85;
+      dog.state.rightEarKick = 0.85;
+      dog.state.excitement = Math.max(dog.state.excitement, 0.45);
       if (dog.id === 'sunny') dog.state.glintProgress = 0.01;
     }
 
     if (viewId === 'all') {
-      statusHintEl.textContent = '已切换：三只同框 · 统一采用图2正面乖巧蹲坐姿势';
+      statusHintEl.textContent = '三只同框 · 敲键盘、移动鼠标或点击左右键，三只小狗同步联动';
     } else if (dogs[viewId]) {
-      statusHintEl.textContent = `已切换：${dogs[viewId].subtitle}`;
+      statusHintEl.textContent = `已切换：${dogs[viewId].name} · 敲键盘或移动点击鼠标试试`;
     }
     drawScene();
   }
@@ -222,20 +752,24 @@
     });
   }
 
-  motionToggleBtn.addEventListener('click', (e) => {
+  soundToggleBtn.addEventListener('click', (e) => {
     e.stopPropagation();
-    motionEnabled = !motionEnabled;
-    motionToggleBtn.setAttribute('aria-pressed', String(motionEnabled));
-    motionIconEl.textContent = motionEnabled ? '✨' : '⏸️';
-    motionLabelEl.textContent = motionEnabled ? '微动开' : '已定格';
-    statusHintEl.textContent = motionEnabled ? '已开启呼吸/摇尾/眨眼微动' : '已切换为静态定格展示';
-    motionToggleBtn.blur();
+    soundEnabled = !soundEnabled;
+    soundToggleBtn.setAttribute('aria-pressed', String(soundEnabled));
+    soundIconEl.textContent = soundEnabled ? '🔊' : '🔇';
+    soundLabelEl.textContent = soundEnabled ? '音效开' : '音效关';
+    if (soundEnabled) {
+      ensureAudio();
+      playKeySound(false);
+    }
+    soundToggleBtn.blur();
   });
 
   themeToggleBtn.addEventListener('click', (e) => {
     e.stopPropagation();
     isDarkTheme = !isDarkTheme;
     syncThemeUI();
+    drawScene();
     themeToggleBtn.blur();
   });
 
@@ -245,76 +779,260 @@
     exportBtn.blur();
   });
 
-  function clientToStage(clientX, clientY) {
-    return {
-      sx: (clientX - viewport.offsetX) / viewport.scale,
-      sy: (clientY - viewport.offsetY) / viewport.scale,
-    };
+  function resolveKeyTarget(code) {
+    if (keyByCode.has(code)) return { keyObj: keyByCode.get(code), alias: null };
+    const alias = CODE_ALIAS[code];
+    if (alias && keyByCode.has(alias.target)) return { keyObj: keyByCode.get(alias.target), alias };
+    return { keyObj: keyByCode.get('Space'), alias: null, unknown: true };
   }
 
-  window.addEventListener('mousemove', (e) => {
-    const { sx, sy } = clientToStage(e.clientX, e.clientY);
-    scene.pointerStageX = sx;
-    scene.pointerStageY = sy;
-    scene.pointerActive = true;
-  });
+  function assignPawForDog(dogObj, keyObj) {
+    if (!keyObj) return;
+    const st = dogObj.state;
 
-  function spawnPetFeedback(x, y, accentColor) {
-    scene.ripples.push({ x, y, color: accentColor, life: 0, maxLife: 0.45 });
-    for (let i = 0; i < 4; i++) {
-      scene.FloatingHearts.push({
-        x: x + (Math.random() - 0.5) * 64,
-        y: y - 16 + (Math.random() - 0.5) * 20,
-        vx: (Math.random() - 0.5) * 34,
-        vy: -56 - Math.random() * 36,
-        size: 10 + Math.random() * 6,
-        rot: (Math.random() - 0.5) * 0.45,
-        color: i % 2 === 0 ? '#FF85A2' : accentColor,
-        life: 0,
-        maxLife: 0.85 + Math.random() * 0.3,
-      });
+    let useLeft = keyObj.hand === 'left';
+    if (useLeft && (inputState.leftDown || inputState.rightDown || inputState.middleDown)) {
+      useLeft = false;
+    }
+
+    if (useLeft) {
+      const lp = st.leftPaw;
+      lp.mode = 'keyboard';
+      lp.activeKeyCode = keyObj.code;
+      lp.targetX = keyObj.ux;
+      lp.targetY = keyObj.uy - 3;
+      lp.returnToMouseAt = inputState.time + 0.56;
+      st.leftEarKick = 1;
+    } else {
+      const rp = st.rightPaw;
+      rp.prevX = rp.x;
+      rp.prevY = rp.y;
+      rp.ghostAlpha = 0.38;
+      rp.activeKeyCode = keyObj.code;
+      rp.targetX = keyObj.code === 'Space' ? keyObj.ux + 16 : keyObj.ux;
+      rp.targetY = keyObj.uy - 3;
+      rp.holdUntil = inputState.time + 0.15;
+      st.rightEarKick = 1;
+    }
+
+    st.targetLeanX = clamp((keyObj.ux - KB_LOCAL.cx) * 0.08, -12, 12);
+    st.targetLookX = clamp((keyObj.ux - DOG_X) / 190, -0.8, 0.85);
+    st.targetLookY = 0.5;
+    st.bounce = 0.95;
+    st.excitement = Math.min(1, st.excitement + 0.26);
+    if (dogObj.id === 'sunny' && st.glintProgress === 0 && Math.random() < 0.35) {
+      st.glintProgress = 0.01;
     }
   }
 
-  canvas.addEventListener('pointerdown', (e) => {
-    const { sx, sy } = clientToStage(e.clientX, e.clientY);
-    scene.pointerStageX = sx;
-    scene.pointerStageY = sy;
-    scene.pointerActive = true;
+  window.addEventListener('keydown', (e) => {
+    const isBrowserShortcut =
+      ((e.metaKey || e.ctrlKey) &&
+        (e.code === 'KeyR' || e.code === 'KeyW' || e.code === 'KeyT' || e.code === 'KeyL')) ||
+      e.code === 'F12';
 
-    const placements = getActivePlacements();
-    let hit = null;
-    let bestDist = Infinity;
-
-    for (const p of placements) {
-      const centerY = p.groundY - 155 * p.scale;
-      const dx = (sx - p.cx) / p.scale;
-      const dy = (sy - centerY) / p.scale;
-      const dist = Math.hypot(dx, dy * 0.85);
-      if (dist < 155 && dist < bestDist) {
-        bestDist = dist;
-        hit = p;
+    if (!isBrowserShortcut) {
+      if (
+        e.code === 'Space' ||
+        e.code === 'Tab' ||
+        e.code === 'Backspace' ||
+        e.code === 'Slash' ||
+        e.code === 'Quote' ||
+        e.code.startsWith('Arrow') ||
+        e.code.startsWith('F')
+      ) {
+        e.preventDefault();
       }
     }
 
-    const targets = hit ? [hit] : placements;
-    for (const t of targets) {
-      const st = t.dog.state;
-      st.bounce = 1.0;
-      st.earKick = 1.0;
-      st.excitement = Math.min(1, st.excitement + 0.65);
-      if (t.dog.id === 'sunny') st.glintProgress = 0.01;
+    inputState.shiftDown = e.shiftKey;
+    if (e.code === 'MetaLeft' || e.code === 'MetaRight') inputState.metaDown = true;
 
-      const badgeColor =
-        t.dog.id === 'sunny' ? '#FFB84D' : t.dog.id === 'daisy' ? '#73A6EE' : '#F0B27A';
-      spawnPetFeedback(t.cx, t.groundY - 265 * t.scale, badgeColor);
+    const { keyObj, alias, unknown } = resolveKeyTarget(e.code);
+    const displayInfo = getKeyDisplayInfo(e, unknown ? null : keyObj, alias);
+
+    if (keyObj) {
+      keyObj.isDown = true;
+      keyObj.glow = 1;
     }
 
-    scene.petCount += 1;
-    petCountEl.textContent = String(scene.petCount);
-    if (hit) {
-      statusHintEl.textContent = `摸了摸「${hit.dog.name}」的脑袋 🐾`;
+    inputState.activeCodes.add(e.code);
+    if (inputState.metaDown && e.code !== 'MetaLeft' && e.code !== 'MetaRight') {
+      inputState.metaPressedCodes.add(e.code);
     }
+
+    spawnOrPulseKeyPopup(e.code, keyObj, displayInfo, e.repeat);
+
+    if (!e.repeat && keyObj) {
+      const placements = getActivePlacements();
+      for (const p of placements) {
+        assignPawForDog(p.dog, keyObj);
+        const pos = unitToStage(p, keyObj.ux, keyObj.uy);
+        spawnRipple(pos.sx, pos.sy, '#FFA234', Math.max(18, keyObj.w * p.scale * 0.72));
+        spawnSparkles(pos.sx, pos.sy - 3, '#FFB84D', placements.length > 1 ? 3 : 5);
+      }
+
+      playKeySound(keyObj.w >= 1.75);
+      incrementAction(`按下按键：${displayInfo.main}`);
+    }
+  });
+
+  function releaseKeyCode(code) {
+    inputState.activeCodes.delete(code);
+    const { keyObj } = resolveKeyTarget(code);
+    if (keyObj) {
+      let stillHeld = false;
+      for (const active of inputState.activeCodes) {
+        if (resolveKeyTarget(active).keyObj === keyObj) {
+          stillHeld = true;
+          break;
+        }
+      }
+      if (!stillHeld) keyObj.isDown = false;
+    }
+
+    for (const p of inputState.popups) {
+      if (p.code === code && p.isHeld) p.isHeld = false;
+    }
+
+    for (const dogObj of Object.values(dogs)) {
+      const st = dogObj.state;
+      if (keyObj && st.leftPaw.activeKeyCode === keyObj.code) {
+        st.leftPaw.activeKeyCode = null;
+        st.leftPaw.returnToMouseAt = Math.min(st.leftPaw.returnToMouseAt, inputState.time + 0.4);
+      }
+      if (keyObj && st.rightPaw.activeKeyCode === keyObj.code) {
+        st.rightPaw.activeKeyCode = null;
+      }
+    }
+  }
+
+  window.addEventListener('keyup', (e) => {
+    inputState.shiftDown = e.shiftKey;
+    releaseKeyCode(e.code);
+
+    if (e.code === 'MetaLeft' || e.code === 'MetaRight') {
+      inputState.metaDown = false;
+      for (const stuckCode of [...inputState.metaPressedCodes]) releaseKeyCode(stuckCode);
+      inputState.metaPressedCodes.clear();
+    }
+  });
+
+  function updateMouseFromClient(clientX, clientY) {
+    const nx = clamp(clientX / Math.max(1, window.innerWidth), 0, 1);
+    const ny = clamp(clientY / Math.max(1, window.innerHeight), 0, 1);
+
+    inputState.mouseNormX = nx;
+    inputState.mouseNormY = ny;
+    inputState.mouseTargetLX = lerp(MOUSE_BOUNDS_LOCAL.minX, MOUSE_BOUNDS_LOCAL.maxX, nx);
+    inputState.mouseTargetLY = lerp(MOUSE_BOUNDS_LOCAL.minY, MOUSE_BOUNDS_LOCAL.maxY, ny);
+    inputState.mouseActivityGlow = Math.min(1, inputState.mouseActivityGlow + 0.32);
+
+    for (const dogObj of Object.values(dogs)) {
+      const st = dogObj.state;
+      st.leftPaw.mode = 'mouse';
+      st.leftPaw.activeKeyCode = null;
+      st.targetLookX = (nx - 0.5) * 1.35;
+      st.targetLookY = (ny - 0.42) * 0.9;
+      st.targetLeanX = (nx - 0.5) * 10;
+    }
+  }
+
+  function syncMouseButtonsBitmask(buttons) {
+    if (typeof buttons !== 'number') return;
+    inputState.leftDown = (buttons & 1) !== 0;
+    inputState.rightDown = (buttons & 2) !== 0;
+    inputState.middleDown = (buttons & 4) !== 0;
+  }
+
+  window.addEventListener('mousemove', (e) => {
+    updateMouseFromClient(e.clientX, e.clientY);
+    syncMouseButtonsBitmask(e.buttons);
+  });
+
+  window.addEventListener('mousedown', (e) => {
+    if (e.target && e.target.closest && e.target.closest('.hud-top')) return;
+
+    updateMouseFromClient(e.clientX, e.clientY);
+    const placements = getActivePlacements();
+
+    for (const p of placements) {
+      const st = p.dog.state;
+      st.leftPaw.mode = 'mouse';
+      st.leftEarKick = 0.95;
+      st.bounce = 0.72;
+      st.excitement = Math.min(1, st.excitement + 0.24);
+    }
+    inputState.mouseActivityGlow = 1;
+
+    if (e.button === 0) {
+      inputState.leftDown = true;
+      inputState.leftGlow = 1;
+      for (const p of placements) {
+        const mPos = unitToStage(p, inputState.mouseLX - 13, inputState.mouseLY + 18);
+        spawnRipple(mPos.sx, mPos.sy, '#FF7849', 36 * p.scale);
+        spawnSparkles(mPos.sx, mPos.sy, '#FF7849', placements.length > 1 ? 3 : 5);
+        spawnMouseBadge(mPos.sx - 6, mPos.sy + 38 * p.scale, '左键', '#FF6B42');
+      }
+      playMouseClickSound(false);
+      incrementAction('点击鼠标左键');
+    } else if (e.button === 2) {
+      inputState.rightDown = true;
+      inputState.rightGlow = 1;
+      for (const p of placements) {
+        const mPos = unitToStage(p, inputState.mouseLX + 13, inputState.mouseLY + 18);
+        spawnRipple(mPos.sx, mPos.sy, '#38BDF8', 36 * p.scale);
+        spawnSparkles(mPos.sx, mPos.sy, '#38BDF8', placements.length > 1 ? 3 : 5);
+        spawnMouseBadge(mPos.sx + 6, mPos.sy + 38 * p.scale, '右键', '#0EA5E9');
+      }
+      playMouseClickSound(true);
+      incrementAction('点击鼠标右键');
+    } else if (e.button === 1) {
+      e.preventDefault();
+      inputState.middleDown = true;
+      inputState.middleGlow = 1;
+      for (const p of placements) {
+        const mPos = unitToStage(p, inputState.mouseLX, inputState.mouseLY + 15);
+        spawnRipple(mPos.sx, mPos.sy, '#A78BFA', 32 * p.scale);
+        spawnMouseBadge(mPos.sx, mPos.sy + 38 * p.scale, '中键', '#8B5CF6');
+      }
+      playMouseClickSound(true);
+      incrementAction('点击鼠标中键');
+    }
+  });
+
+  window.addEventListener('mouseup', (e) => {
+    if (e.button === 0) inputState.leftDown = false;
+    else if (e.button === 2) inputState.rightDown = false;
+    else if (e.button === 1) inputState.middleDown = false;
+    syncMouseButtonsBitmask(e.buttons);
+  });
+
+  window.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+  });
+
+  window.addEventListener(
+    'wheel',
+    (e) => {
+      inputState.wheelVel += clamp(e.deltaY, -120, 120) * 0.28;
+      inputState.middleGlow = Math.max(inputState.middleGlow, 0.85);
+      for (const dogObj of Object.values(dogs)) {
+        dogObj.state.leftPaw.mode = 'mouse';
+        dogObj.state.excitement = Math.min(1, dogObj.state.excitement + 0.08);
+      }
+    },
+    { passive: true }
+  );
+
+  window.addEventListener('blur', () => {
+    for (const code of [...inputState.activeCodes]) releaseKeyCode(code);
+    inputState.metaDown = false;
+    inputState.shiftDown = false;
+    inputState.metaPressedCodes.clear();
+    inputState.leftDown = false;
+    inputState.rightDown = false;
+    inputState.middleDown = false;
   });
 
   function exportTransparentPNG() {
@@ -326,91 +1044,186 @@
     if (!octx) return;
 
     octx.scale(exportScale, exportScale);
-    const placements = getActivePlacements();
-    for (const p of placements) {
-      drawPuppyCharacter(octx, p.dog, p.cx, p.groundY, p.scale, true);
+    for (const p of getActivePlacements()) {
+      drawPuppyWorkstation(octx, p, true);
     }
 
     const link = document.createElement('a');
-    link.download = `peng-dogs-${currentView}-squat.png`;
+    link.download = `peng-dogs-${currentView}-desk.png`;
     link.href = offCanvas.toDataURL('image/png');
     link.click();
-    statusHintEl.textContent = `已导出透明 PNG：peng-dogs-${currentView}-squat.png`;
+    statusHintEl.textContent = `已导出透明 PNG：peng-dogs-${currentView}-desk.png`;
   }
 
   // =========================================================================
   // Simulation Update
   // =========================================================================
   function update(dt) {
-    if (motionEnabled) {
-      scene.time += dt;
+    inputState.time += dt;
+
+    // Shared Mouse glide & button glows
+    const prevMx = inputState.mouseLX;
+    const mFollow = 1 - Math.exp(-dt * 24);
+    inputState.mouseLX = lerp(inputState.mouseLX, inputState.mouseTargetLX, mFollow);
+    inputState.mouseLY = lerp(inputState.mouseLY, inputState.mouseTargetLY, mFollow);
+    inputState.mouseVx = (inputState.mouseLX - prevMx) / Math.max(0.001, dt);
+    const targetTilt = clamp(
+      0.03 + inputState.mouseVx * 0.0006 + (inputState.mouseNormX - 0.5) * 0.08,
+      -0.15,
+      0.17
+    );
+    inputState.mouseTilt = lerp(inputState.mouseTilt, targetTilt, 1 - Math.exp(-dt * 14));
+    inputState.mouseActivityGlow = Math.max(0, inputState.mouseActivityGlow - dt * 1.9);
+
+    inputState.wheelOffset += inputState.wheelVel * dt;
+    inputState.wheelVel *= Math.exp(-dt * 10);
+
+    if (inputState.leftDown) inputState.leftGlow = 1;
+    else inputState.leftGlow = Math.max(0, inputState.leftGlow - dt * 3.0);
+
+    if (inputState.rightDown) inputState.rightGlow = 1;
+    else inputState.rightGlow = Math.max(0, inputState.rightGlow - dt * 3.0);
+
+    if (inputState.middleDown) inputState.middleGlow = 1;
+    else inputState.middleGlow = Math.max(0, inputState.middleGlow - dt * 3.2);
+
+    // Keycap depression & glow
+    for (const k of keysList) {
+      k.press = lerp(k.press, k.isDown ? 1 : 0, 1 - Math.exp(-dt * 30));
+      if (k.isDown) k.glow = 1;
+      else k.glow = Math.max(0, k.glow - dt * 3.4);
     }
 
-    const placements = getActivePlacements();
-    for (const p of placements) {
-      const st = p.dog.state;
+    // Per-puppy animation & left/right paw kinematics
+    const pawFollow = 1 - Math.exp(-dt * 28);
+    for (const dogObj of Object.values(dogs)) {
+      const st = dogObj.state;
+      st.breathPhase += dt * 2.5;
+      st.excitement = Math.max(0, st.excitement - dt * 0.45);
+      st.tailPhase += dt * (4.5 + st.excitement * 11.0);
 
-      if (motionEnabled) {
-        st.breathPhase += dt * 2.5;
-        st.tailPhase += dt * (4.4 + st.excitement * 9.5);
-        st.excitement = Math.max(0, st.excitement - dt * 0.55);
-        st.bounce *= Math.exp(-dt * 12);
-        st.earKick *= Math.exp(-dt * 10);
+      st.leanX = lerp(st.leanX, st.targetLeanX, 1 - Math.exp(-dt * 9));
+      st.targetLeanX *= Math.exp(-dt * 1.6);
 
-        // Natural blinking
-        st.blinkTimer -= dt;
-        if (st.blinkTimer <= 0) {
-          st.blinkProgress += dt * 8.0;
-          if (st.blinkProgress >= Math.PI) {
-            st.blinkProgress = 0;
-            st.blinkTimer = 2.4 + Math.random() * 3.2;
-          }
+      st.lookX = lerp(st.lookX, st.targetLookX, 1 - Math.exp(-dt * 11));
+      st.lookY = lerp(st.lookY, st.targetLookY, 1 - Math.exp(-dt * 11));
+      st.leftEarKick *= Math.exp(-dt * 13);
+      st.rightEarKick *= Math.exp(-dt * 13);
+      st.bounce *= Math.exp(-dt * 15);
+
+      st.blinkTimer -= dt;
+      if (st.blinkTimer <= 0) {
+        st.blinkProgress += dt * 7.6;
+        if (st.blinkProgress >= Math.PI) {
+          st.blinkProgress = 0;
+          st.blinkTimer = 2.4 + Math.random() * 3.0;
         }
-
-        // Sunglasses lens glint for Sunny
-        if (st.glintProgress > 0) {
-          st.glintProgress += dt * 2.4;
-          if (st.glintProgress >= 1) st.glintProgress = 0;
-        } else if (Math.random() < dt * 0.22) {
-          st.glintProgress = 0.01;
-        }
-      } else {
-        st.bounce = 0;
-        st.earKick = 0;
-        st.blinkProgress = 0;
       }
 
-      // Gentle cursor gaze tracking
-      const headWorldY = p.groundY - 205 * p.scale;
-      const targetLX = scene.pointerActive
-        ? clamp((scene.pointerStageX - p.cx) / 340, -0.75, 0.75)
-        : 0;
-      const targetLY = scene.pointerActive
-        ? clamp((scene.pointerStageY - headWorldY) / 280, -0.55, 0.55)
-        : 0;
+      if (st.glintProgress > 0) {
+        st.glintProgress += dt * 2.4;
+        if (st.glintProgress >= 1) st.glintProgress = 0;
+      } else if (dogObj.id === 'sunny' && Math.random() < dt * 0.18) {
+        st.glintProgress = 0.01;
+      }
 
-      const follow = motionEnabled ? 1 - Math.exp(-dt * 9) : 0.2;
-      st.lookX = lerp(st.lookX, motionEnabled ? targetLX : 0, follow);
-      st.lookY = lerp(st.lookY, motionEnabled ? targetLY : 0, follow);
+      // Left paw (Mouse + Left-hand keyboard keys)
+      const lp = st.leftPaw;
+      if (lp.mode === 'keyboard' && lp.activeKeyCode === null && inputState.time > lp.returnToMouseAt) {
+        lp.mode = 'mouse';
+      }
+      if (lp.mode === 'mouse') {
+        let cShiftX = 0;
+        let cShiftY = 0;
+        if (inputState.leftDown || inputState.leftGlow > 0.3) {
+          const s = Math.max(inputState.leftDown ? 1 : 0, inputState.leftGlow);
+          cShiftX = -4.5 * s;
+          cShiftY = 3.5 * s;
+        } else if (inputState.rightDown || inputState.rightGlow > 0.3) {
+          const s = Math.max(inputState.rightDown ? 1 : 0, inputState.rightGlow);
+          cShiftX = 4.5 * s;
+          cShiftY = 3.5 * s;
+        }
+        lp.clickShiftX = lerp(lp.clickShiftX, cShiftX, 1 - Math.exp(-dt * 26));
+        lp.clickShiftY = lerp(lp.clickShiftY, cShiftY, 1 - Math.exp(-dt * 26));
+        lp.targetX = inputState.mouseLX + 2 + lp.clickShiftX;
+        lp.targetY = inputState.mouseLY - 17 + lp.clickShiftY;
+      }
+
+      const lpDist = Math.hypot(lp.targetX - lp.x, lp.targetY - lp.y);
+      lp.x = lerp(lp.x, lp.targetX, pawFollow);
+      lp.y = lerp(lp.y, lp.targetY, pawFollow);
+      const lpClicking =
+        lp.mode === 'mouse'
+          ? inputState.leftDown || inputState.rightDown || inputState.middleDown
+          : lp.activeKeyCode !== null && lpDist < 16;
+      lp.lift = lerp(lp.lift, clamp(lpDist / 65, 0, 0.82), 1 - Math.exp(-dt * 22));
+      lp.press = lerp(lp.press, lpClicking ? 1 : 0, 1 - Math.exp(-dt * 28));
+
+      // Right paw (Right-hand keyboard keys)
+      const rp = st.rightPaw;
+      const rightActive = rp.activeKeyCode !== null || inputState.time < rp.holdUntil;
+      if (!rightActive) {
+        const breathe = Math.sin(st.breathPhase) * 1.8;
+        rp.targetX = RIGHT_PAW_REST_UX + st.leanX * 0.4;
+        rp.targetY = RIGHT_PAW_REST_UY + breathe;
+      }
+      const rpDist = Math.hypot(rp.targetX - rp.x, rp.targetY - rp.y);
+      rp.x = lerp(rp.x, rp.targetX, pawFollow);
+      rp.y = lerp(rp.y, rp.targetY, pawFollow);
+      rp.ghostAlpha = Math.max(0, rp.ghostAlpha - dt * 3.8);
+      rp.lift = lerp(rp.lift, rightActive ? clamp(rpDist / 58, 0, 0.8) : 0.06, 1 - Math.exp(-dt * 24));
+      rp.press = lerp(rp.press, rightActive && rpDist < 16 ? 1 : 0, 1 - Math.exp(-dt * 30));
     }
 
-    for (let i = scene.ripples.length - 1; i >= 0; i--) {
-      scene.ripples[i].life += dt;
-      if (scene.ripples[i].life >= scene.ripples[i].maxLife) scene.ripples.splice(i, 1);
+    // Enlarged floating keycaps (entrance pop + smooth gradient fade-out!)
+    for (let i = inputState.popups.length - 1; i >= 0; i--) {
+      const p = inputState.popups[i];
+      p.age += dt;
+      p.pulse *= Math.exp(-dt * 14);
+
+      const moveT = easeOutCubic(Math.min(1, p.age / 0.16));
+      p.x = lerp(p.startX, p.targetX, moveT);
+      p.y = lerp(p.startY, p.targetY, moveT);
+
+      const minHold = p.fastFade ? 0.14 : 0.44;
+      if (!p.isHeld || p.age > 1.35) p.holdElapsed += dt;
+
+      if (p.age >= minHold && (!p.isHeld || p.age > 1.35)) {
+        const fadeDur = p.fastFade ? 0.34 : 0.76;
+        p.fadeElapsed += dt;
+        p.fadeProgress = clamp(p.fadeElapsed / fadeDur, 0, 1);
+      }
+
+      if (p.fadeProgress >= 1) inputState.popups.splice(i, 1);
     }
 
-    for (let i = scene.FloatingHearts.length - 1; i >= 0; i--) {
-      const h = scene.FloatingHearts[i];
-      h.life += dt;
-      h.x += h.vx * dt;
-      h.y += h.vy * dt;
-      h.vy += 45 * dt;
-      if (h.life >= h.maxLife) scene.FloatingHearts.splice(i, 1);
+    for (let i = inputState.ripples.length - 1; i >= 0; i--) {
+      inputState.ripples[i].life += dt;
+      if (inputState.ripples[i].life >= inputState.ripples[i].maxLife) inputState.ripples.splice(i, 1);
+    }
+
+    for (let i = inputState.particles.length - 1; i >= 0; i--) {
+      const pt = inputState.particles[i];
+      pt.life += dt;
+      pt.x += pt.vx * dt;
+      pt.y += pt.vy * dt;
+      pt.vy += 160 * dt;
+      pt.vx *= Math.exp(-dt * 2.5);
+      pt.rot += pt.vRot * dt;
+      if (pt.life >= pt.maxLife) inputState.particles.splice(i, 1);
+    }
+
+    for (let i = inputState.mouseBadges.length - 1; i >= 0; i--) {
+      inputState.mouseBadges[i].life += dt;
+      if (inputState.mouseBadges[i].life >= inputState.mouseBadges[i].maxLife) {
+        inputState.mouseBadges.splice(i, 1);
+      }
     }
   }
 
   // =========================================================================
-  // Backdrop & Storybook Decorations (Adapted to View Mode)
+  // Backdrop & Ambient Decorations
   // =========================================================================
   function drawBackdropFullViewport() {
     const w = viewport.cssW;
@@ -432,22 +1245,18 @@
 
     const grad = ctx.createRadialGradient(w * 0.5, h * 0.44, 40, w * 0.5, h * 0.5, Math.max(w, h) * 0.82);
     if (currentView === 'daisy') {
-      // Image 2 pastel sky-blue colored-pencil storybook background
       grad.addColorStop(0, '#F3F9FF');
       grad.addColorStop(0.55, '#DCEEFF');
       grad.addColorStop(1, '#C1E1FE');
     } else if (currentView === 'sunny') {
-      // Warm cream doodle paper matching Image 1
       grad.addColorStop(0, '#FFFEFA');
       grad.addColorStop(0.6, '#FFF7E4');
       grad.addColorStop(1, '#F8E9C8');
     } else if (currentView === 'kuro') {
-      // Clean warm ivory sketch paper matching Image 3
       grad.addColorStop(0, '#FFFFFF');
       grad.addColorStop(0.65, '#FAF8F4');
       grad.addColorStop(1, '#EFECE4');
     } else {
-      // Harmonious soft pastel studio backdrop for all 3 puppies together
       grad.addColorStop(0, '#FCFDFE');
       grad.addColorStop(0.6, '#EDF4FC');
       grad.addColorStop(1, '#DCE9F8');
@@ -462,22 +1271,19 @@
   }
 
   function drawPastelHeart(c, x, y, size, rot, phase) {
-    const bob = motionEnabled ? Math.sin(scene.time * 2.2 + phase) * 4 : 0;
+    const bob = Math.sin(inputState.time * 2.2 + phase) * 4;
     c.save();
     c.translate(x, y + bob);
     c.rotate(rot);
 
-    const path = () => {
-      c.beginPath();
-      c.moveTo(0, size * 0.34);
-      c.bezierCurveTo(-size * 0.16, -size * 0.44, -size * 1.15, -size * 0.24, -size * 0.9, size * 0.38);
-      c.bezierCurveTo(-size * 0.72, size * 0.85, -size * 0.14, size * 1.05, 0, size * 1.2);
-      c.bezierCurveTo(size * 0.14, size * 1.05, size * 0.72, size * 0.85, size * 0.9, size * 0.38);
-      c.bezierCurveTo(size * 1.15, -size * 0.24, size * 0.16, -size * 0.44, 0, size * 0.34);
-      c.closePath();
-    };
+    c.beginPath();
+    c.moveTo(0, size * 0.34);
+    c.bezierCurveTo(-size * 0.16, -size * 0.44, -size * 1.15, -size * 0.24, -size * 0.9, size * 0.38);
+    c.bezierCurveTo(-size * 0.72, size * 0.85, -size * 0.14, size * 1.05, 0, size * 1.2);
+    c.bezierCurveTo(size * 0.14, size * 1.05, size * 0.72, size * 0.85, size * 0.9, size * 0.38);
+    c.bezierCurveTo(size * 1.15, -size * 0.24, size * 0.16, -size * 0.44, 0, size * 0.34);
+    c.closePath();
 
-    path();
     c.strokeStyle = isDarkTheme ? 'rgba(255,255,255,0.75)' : '#FFFFFF';
     c.lineWidth = 6.5;
     c.lineJoin = 'round';
@@ -496,7 +1302,7 @@
   }
 
   function drawPastelStar(c, x, y, r, rot, phase) {
-    const bob = motionEnabled ? Math.sin(scene.time * 1.9 + phase) * 3.5 : 0;
+    const bob = Math.sin(inputState.time * 1.9 + phase) * 3.5;
     c.save();
     c.translate(x, y + bob);
     c.rotate(rot);
@@ -521,9 +1327,8 @@
     c.restore();
   }
 
-  // Blue ribbon bow matching Image 2's background bows!
   function drawBlueRibbonBow(c, x, y, s, rot, phase) {
-    const bob = motionEnabled ? Math.sin(scene.time * 2.0 + phase) * 4 : 0;
+    const bob = Math.sin(inputState.time * 2.0 + phase) * 4;
     c.save();
     c.translate(x, y + bob);
     c.rotate(rot);
@@ -532,7 +1337,6 @@
     const stroke = '#6D96CC';
     const fill = '#B8D8FA';
 
-    // Ribbon tails
     for (const side of [-1, 1]) {
       c.beginPath();
       c.moveTo(side * 3, 4);
@@ -547,7 +1351,6 @@
       c.stroke();
     }
 
-    // Left & right bow loops
     for (const side of [-1, 1]) {
       c.beginPath();
       c.moveTo(0, 0);
@@ -560,7 +1363,6 @@
       c.lineWidth = 2.2;
       c.stroke();
 
-      // Subtle plaid stripe inside bow loop
       c.strokeStyle = 'rgba(255, 255, 255, 0.65)';
       c.lineWidth = 2.4;
       c.beginPath();
@@ -569,7 +1371,6 @@
       c.stroke();
     }
 
-    // Center knot
     c.beginPath();
     c.ellipse(0, 1, 6.5, 7.5, 0, 0, Math.PI * 2);
     c.fillStyle = '#9BC5F4';
@@ -583,109 +1384,57 @@
 
   function drawStageAmbientDecorations() {
     if (currentView === 'daisy') {
-      drawBlueRibbonBow(ctx, 290, 165, 1.05, -0.22, 0.4);
-      drawBlueRibbonBow(ctx, 835, 265, 1.05, 0.18, 1.9);
-      drawBlueRibbonBow(ctx, 270, 390, 0.92, -0.15, 2.7);
-      drawBlueRibbonBow(ctx, 845, 430, 0.95, 0.16, 3.4);
-
-      drawPastelHeart(ctx, 645, 98, 20, 0.14, 0.2);
-      drawPastelHeart(ctx, 315, 265, 18, -0.2, 1.5);
-      drawPastelHeart(ctx, 815, 345, 19, 0.18, 2.6);
-
-      drawPastelStar(ctx, 365, 108, 18, -0.18, 0.9);
-      drawPastelStar(ctx, 795, 138, 19, 0.22, 2.1);
-    } else if (currentView === 'all') {
-      // Subtle floating accents framing the trio without clutter
-      drawPastelStar(ctx, 96, 136, 15, -0.2, 0.6);
-      drawPastelHeart(ctx, 560, 88, 15, 0.1, 1.4);
-      drawBlueRibbonBow(ctx, 412, 148, 0.72, -0.18, 2.1);
-      drawPastelStar(ctx, 1024, 144, 14, 0.24, 2.9);
+      drawBlueRibbonBow(ctx, 320, 150, 1.05, -0.22, 0.4);
+      drawBlueRibbonBow(ctx, 995, 195, 1.05, 0.18, 1.9);
+      drawPastelHeart(ctx, 760, 92, 20, 0.14, 0.2);
+      drawPastelHeart(ctx, 345, 310, 18, -0.2, 1.5);
+      drawPastelHeart(ctx, 985, 340, 19, 0.18, 2.6);
+      drawPastelStar(ctx, 430, 102, 18, -0.18, 0.9);
+      drawPastelStar(ctx, 925, 118, 19, 0.22, 2.1);
     }
   }
 
   // =========================================================================
-  // UNIFIED SQUATTING POSE RIG (Exact Pose of Image 2!)
+  // Shared Squatting Torso, Hind Legs & Head Silhouettes (Image 2 Squat Pose!)
   // =========================================================================
-  // Local Coordinate System for every puppy:
-  //   (0, 0) = Ground contact midpoint right between the two front paws
-  //   Front paws rest flat around (-34, 0) and (+34, 0)
-  //   Squatting hind thighs & tucked hind paws sit slightly higher (-74, -18) & (+74, -18)
-  //   Tail peeks out behind the left hip (-72, -62)
-  //   Compact plump chest/belly spans y = -132 .. -18
-  //   Big round mochi head centers around (0, -206)
-
-  function defineSquatHindThighPath(c, side, breath) {
+  function defineSquatHindThighPath(c, bodyX, side, breath) {
     c.beginPath();
-    c.moveTo(side * 46, -98 + breath * 0.3);
-    c.bezierCurveTo(side * 86, -92 + breath * 0.2, side * 94, -50, side * 80, -22);
-    c.bezierCurveTo(side * 70, -12, side * 52, -14, side * 44, -26);
+    c.moveTo(bodyX + side * 46, -104 + breath * 0.3);
+    c.bezierCurveTo(bodyX + side * 88, -98 + breath * 0.2, bodyX + side * 96, -54, bodyX + side * 82, -24);
+    c.bezierCurveTo(bodyX + side * 72, -14, bodyX + side * 52, -16, bodyX + side * 44, -28);
     c.closePath();
   }
 
-  function defineTuckedHindPawPath(c, side) {
+  function defineTuckedHindPawPath(c, bodyX, side) {
     c.beginPath();
-    c.ellipse(side * 71, -17, 18, 10.5, side * 0.12, 0, Math.PI * 2);
+    c.ellipse(bodyX + side * 73, -19, 18, 10.5, side * 0.12, 0, Math.PI * 2);
   }
 
-  function defineSquatTorsoPath(c, breath) {
-    const topY = -134 + breath * 0.5;
-    c.beginPath();
-    c.moveTo(0, topY);
-    c.bezierCurveTo(50, topY, 72, -104 + breath * 0.35, 70, -58);
-    c.bezierCurveTo(68, -28, 38, -17, 0, -17);
-    c.bezierCurveTo(-38, -17, -68, -28, -70, -58);
-    c.bezierCurveTo(-72, -104 + breath * 0.35, -50, topY, 0, topY);
-    c.closePath();
-  }
-
-  // Symmetrical plump front leg + rounded ground-resting paw (Image 2 signature!)
-  function defineFrontLegAndPawPath(c, side, breath) {
-    const sy = -106 + breath * 0.4;
-    c.beginPath();
-    // Outer shoulder down to wrist
-    c.moveTo(side * 58, sy);
-    c.bezierCurveTo(side * 63, -76, side * 59, -42, side * 56, -22);
-    // Outer curve of plump rounded paw resting on ground (y = +3)
-    c.bezierCurveTo(side * 62, -12, side * 59, 3, side * 42, 4);
-    // Flat-ish cushioned bottom of paw across to inner toe
-    c.bezierCurveTo(side * 33, 5.5, side * 23, 5.5, side * 15, 3.5);
-    // Inner curve of paw up to inner wrist & inner leg
-    c.bezierCurveTo(side * 8, 1, side * 9, -12, side * 13, -22);
-    c.bezierCurveTo(side * 12, -46, side * 11, -74, side * 14, -92 + breath * 0.35);
-    c.closePath();
-  }
-
-  function drawPawToeCreases(c, side, strokeColor, lineWidth) {
+  function drawHindPawToeCreases(c, bodyX, side, strokeColor, lineWidth) {
     c.save();
     c.strokeStyle = strokeColor;
     c.lineWidth = lineWidth;
     c.lineCap = 'round';
-    // 3 gentle curved toe splits creating 4 adorable plump puppy toes
-    const offsets = [21, 32, 43];
-    for (const ox of offsets) {
+    for (const ox of [68, 77]) {
       c.beginPath();
-      c.moveTo(side * ox, -7.5);
-      c.quadraticCurveTo(side * (ox + 1.2), -1.5, side * ox, 3.6);
+      c.moveTo(bodyX + side * ox, -23);
+      c.lineTo(bodyX + side * (ox + 1), -14);
       c.stroke();
     }
     c.restore();
   }
 
-  function drawHindPawToeCreases(c, side, strokeColor, lineWidth) {
-    c.save();
-    c.strokeStyle = strokeColor;
-    c.lineWidth = lineWidth;
-    c.lineCap = 'round';
-    for (const ox of [66, 75]) {
-      c.beginPath();
-      c.moveTo(side * ox, -21);
-      c.lineTo(side * (ox + 1), -12);
-      c.stroke();
-    }
-    c.restore();
+  function defineSquatTorsoPath(c, bodyX, breath) {
+    const topY = -140 + breath * 0.5;
+    c.beginPath();
+    c.moveTo(bodyX, topY);
+    c.bezierCurveTo(bodyX + 52, topY, bodyX + 76, -106 + breath * 0.35, bodyX + 74, -56);
+    c.bezierCurveTo(bodyX + 72, -20, bodyX + 42, -8, bodyX, -8);
+    c.bezierCurveTo(bodyX - 42, -8, bodyX - 72, -20, bodyX - 74, -56);
+    c.bezierCurveTo(bodyX - 76, -106 + breath * 0.35, bodyX - 52, topY, bodyX, topY);
+    c.closePath();
   }
 
-  // Smooth mochi-cheek puppy head shared base silhouette (lush round dome + plump lower cheeks!)
   function definePlumpPuppyHeadPath(c) {
     c.beginPath();
     c.moveTo(0, -92);
@@ -697,15 +1446,14 @@
   }
 
   // =========================================================================
-  // CHARACTER 1 (图1): 🕶️ 墨镜金毛 (Sunny — Cool Golden Retriever in Squat Pose)
+  // CHARACTER 1 (图1): 🕶️ 墨镜金毛 (Sunny)
   // =========================================================================
-  function drawSunnyTail(c, wagAngle, breath) {
+  function drawSunnyTail(c, bodyX, wagAngle, breath) {
     const ink = '#181411';
     c.save();
-    c.translate(-66, -54 + breath * 0.3);
+    c.translate(bodyX - 68, -62 + breath * 0.3);
     c.rotate(-0.18 + wagAngle);
 
-    // Feathered golden retriever tail curving up-left
     const tailPath = () => {
       c.beginPath();
       c.moveTo(6, 12);
@@ -728,7 +1476,6 @@
     c.lineJoin = 'round';
     c.stroke();
 
-    // Signature comic wag motion lines (( around tail from Image 1!
     c.strokeStyle = ink;
     c.lineWidth = 2.4;
     c.lineCap = 'round';
@@ -742,16 +1489,17 @@
     c.restore();
   }
 
-  function drawSunnyCollar(c, breath) {
+  function drawSunnyCollar(c, bodyX, breath) {
     const ink = '#181411';
-    const y = -124 + breath * 0.55;
+    const y = -130 + breath * 0.55;
     c.save();
+    c.translate(bodyX, 0);
     c.beginPath();
-    c.moveTo(-62, y - 8);
-    c.quadraticCurveTo(0, y + 14, 62, y - 8);
-    c.quadraticCurveTo(66, y + 5, 56, y + 12);
-    c.quadraticCurveTo(0, y + 32, -56, y + 12);
-    c.quadraticCurveTo(-66, y + 5, -62, y - 8);
+    c.moveTo(-64, y - 8);
+    c.quadraticCurveTo(0, y + 14, 64, y - 8);
+    c.quadraticCurveTo(68, y + 5, 58, y + 12);
+    c.quadraticCurveTo(0, y + 32, -58, y + 12);
+    c.quadraticCurveTo(-68, y + 5, -64, y - 8);
     c.closePath();
 
     const cg = c.createLinearGradient(-60, y, 60, y + 24);
@@ -772,9 +1520,8 @@
     const ink = '#181411';
     c.save();
     c.translate(side * 96, -38);
-    c.rotate(side * (0.1 + kick * 0.1));
+    c.rotate(side * (0.1 + kick * 0.12));
 
-    // Drooping golden retriever floppy ear framing outside of cheek (Image 1 signature!)
     const earPath = () => {
       c.beginPath();
       c.moveTo(side * -18, -26);
@@ -785,7 +1532,6 @@
     };
 
     earPath();
-    // Creamy yellow top -> warm apricot-orange ear lobe matching Image 1!
     const eg = c.createLinearGradient(0, -26, side * 14, 72);
     eg.addColorStop(0, '#F9DF86');
     eg.addColorStop(0.36, '#F6CE72');
@@ -794,7 +1540,6 @@
     c.fillStyle = eg;
     c.fill();
 
-    // Soft warm-orange fur texture strokes inside lower ear lobe
     c.save();
     earPath();
     c.clip();
@@ -803,13 +1548,12 @@
     c.lineCap = 'round';
     for (const oy of [20, 34, 48]) {
       c.beginPath();
-      c.moveTo(side * 0, oy);
+      c.moveTo(0, oy);
       c.quadraticCurveTo(side * 15, oy + 6, side * 26, oy + 14);
       c.stroke();
     }
     c.restore();
 
-    // Crisp outer & inner-lower floppy ear stroke (seamless blend into crown at top!)
     c.beginPath();
     c.moveTo(side * -8, -25);
     c.bezierCurveTo(side * 14, -26, side * 34, -4, side * 38, 28);
@@ -824,17 +1568,15 @@
     c.restore();
   }
 
-  function drawSunnyCharacter(c, st, breath) {
+  function drawSunnyUpperBody(c, st, bodyX, breath) {
     const ink = '#181411';
     const lineW = 3.8;
-    const wag = Math.sin(st.tailPhase) * (0.14 + st.excitement * 0.24);
+    const wag = Math.sin(st.tailPhase) * (0.14 + st.excitement * 0.25);
 
-    // 1. Waggy golden tail behind left hip
-    drawSunnyTail(c, wag, breath);
+    drawSunnyTail(c, bodyX, wag, breath);
 
-    // 2. Squatting hind thighs & tucked hind paws
     for (const side of [-1, 1]) {
-      defineSquatHindThighPath(c, side, breath);
+      defineSquatHindThighPath(c, bodyX, side, breath);
       c.fillStyle = '#EBC462';
       c.fill();
       c.strokeStyle = ink;
@@ -842,87 +1584,58 @@
       c.lineJoin = 'round';
       c.stroke();
 
-      defineTuckedHindPawPath(c, side);
+      defineTuckedHindPawPath(c, bodyX, side);
       c.fillStyle = '#F7DC82';
       c.fill();
       c.strokeStyle = ink;
       c.lineWidth = 3.4;
       c.stroke();
-      drawHindPawToeCreases(c, side, ink, 2.4);
+      drawHindPawToeCreases(c, bodyX, side, ink, 2.4);
     }
 
-    // 3. Squatting torso + Image 1's signature pastel pink belly!
+    // Squatting torso + pastel pink belly
     c.save();
-    defineSquatTorsoPath(c, breath);
-    const bodyGrad = c.createRadialGradient(0, -96, 14, 0, -64, 90);
+    defineSquatTorsoPath(c, bodyX, breath);
+    const bodyGrad = c.createRadialGradient(bodyX, -100, 14, bodyX, -64, 94);
     bodyGrad.addColorStop(0, '#FBE69B');
     bodyGrad.addColorStop(0.6, '#F7DC80');
     bodyGrad.addColorStop(1, '#EBC362');
     c.fillStyle = bodyGrad;
     c.fill();
 
-    // Pastel pink belly patch clipped inside torso
     c.save();
-    defineSquatTorsoPath(c, breath);
+    defineSquatTorsoPath(c, bodyX, breath);
     c.clip();
-    const bellyGrad = c.createLinearGradient(0, -112, 0, -16);
+    const bellyGrad = c.createLinearGradient(bodyX, -118, bodyX, -12);
     bellyGrad.addColorStop(0, '#F8B4C8');
     bellyGrad.addColorStop(1, '#F29AB4');
     c.fillStyle = bellyGrad;
     c.beginPath();
-    c.ellipse(0, -56 + breath * 0.25, 36, 52, 0, 0, Math.PI * 2);
+    c.ellipse(bodyX, -58 + breath * 0.25, 40, 56, 0, 0, Math.PI * 2);
     c.fill();
     c.strokeStyle = ink;
     c.lineWidth = 2.8;
     c.stroke();
     c.restore();
 
-    defineSquatTorsoPath(c, breath);
+    defineSquatTorsoPath(c, bodyX, breath);
     c.strokeStyle = ink;
     c.lineWidth = lineW;
     c.lineJoin = 'round';
     c.stroke();
     c.restore();
 
-    // 4. Two plump golden front legs & paws resting side-by-side on ground (Image 2 pose!)
-    for (const side of [-1, 1]) {
-      defineFrontLegAndPawPath(c, side, breath);
-      const legGrad = c.createLinearGradient(0, -106, 0, 5);
-      legGrad.addColorStop(0, '#F8DE84');
-      legGrad.addColorStop(0.75, '#FCE596');
-      legGrad.addColorStop(1, '#F4D372');
-      c.fillStyle = legGrad;
-      c.fill();
+    drawSunnyCollar(c, bodyX, breath);
 
-      // Seamless shoulder blend at top, crisp ink around legs & paws
-      c.beginPath();
-      c.moveTo(side * 58, -98 + breath * 0.4);
-      c.bezierCurveTo(side * 63, -74, side * 59, -42, side * 56, -22);
-      c.bezierCurveTo(side * 62, -12, side * 59, 3, side * 42, 4);
-      c.bezierCurveTo(side * 33, 5.5, side * 23, 5.5, side * 15, 3.5);
-      c.bezierCurveTo(side * 8, 1, side * 9, -12, side * 13, -22);
-      c.bezierCurveTo(side * 12, -46, side * 11, -72, side * 14, -88 + breath * 0.35);
-      c.strokeStyle = ink;
-      c.lineWidth = lineW;
-      c.lineCap = 'round';
-      c.lineJoin = 'round';
-      c.stroke();
-
-      drawPawToeCreases(c, side, ink, 2.8);
-    }
-
-    // 5. Pastel Pink Collar
-    drawSunnyCollar(c, breath);
-
-    // 6. Big Fluffy Golden Head + Floppy Ears + Sunglasses + Bone-in-Mouth!
-    const headY = -204 + breath * 0.85 - st.bounce * 8;
-    const headTilt = st.baseTilt + st.lookX * 0.05;
+    // Head
+    const headX = bodyX + st.lookX * 4;
+    const headY = -210 + breath * 0.85 + st.bounce * 4.5;
+    const headTilt = st.baseTilt + st.leanX * 0.002 + st.lookX * 0.04;
 
     c.save();
-    c.translate(st.lookX * 4, headY);
+    c.translate(headX, headY);
     c.rotate(headTilt);
 
-    // Scruffy hand-drawn crown tufts + plump head outline pass
     const defineCrownFluff = () => {
       c.beginPath();
       c.moveTo(-46, -72);
@@ -946,7 +1659,6 @@
     c.lineJoin = 'round';
     c.stroke();
 
-    // Head warm butter-gold fill
     definePlumpPuppyHeadPath(c);
     const hg = c.createRadialGradient(-18, -42, 16, 0, 6, 128);
     hg.addColorStop(0, '#FDF0B4');
@@ -959,11 +1671,9 @@
     c.fillStyle = '#FBE69A';
     c.fill();
 
-    // Drooping apricot-shaded floppy ears framing both sides of the head!
-    drawSunnyFloppyEar(c, -1, st.earKick);
-    drawSunnyFloppyEar(c, 1, st.earKick);
+    drawSunnyFloppyEar(c, -1, st.leftEarKick);
+    drawSunnyFloppyEar(c, 1, st.rightEarKick);
 
-    // Subtle Lighter Muzzle Cushion
     const fx = st.lookX * 5;
     const fy = st.lookY * 3.5;
     c.save();
@@ -974,7 +1684,6 @@
     c.ellipse(0, 26, 46, 31, 0, 0, Math.PI * 2);
     c.fill();
 
-    // Cute coral-pink blush ticks (///) under sunglasses matching Image 1!
     c.strokeStyle = '#EB8676';
     c.lineWidth = 2.4;
     c.lineCap = 'round';
@@ -989,10 +1698,9 @@
       }
     }
 
-    // Cool Black Wayfarer Sunglasses!
+    // Cool Black Wayfarer Sunglasses
     c.save();
-    const sgY = -12 - st.bounce * 2;
-    // Temple arms going cleanly to inner edge of floppy ears
+    const sgY = -12 - st.bounce * 1.5;
     c.strokeStyle = '#141518';
     c.lineWidth = 6.0;
     c.lineCap = 'round';
@@ -1001,12 +1709,10 @@
     c.lineTo(-56, sgY - 2);
     c.moveTo(56, sgY - 2);
     c.lineTo(79, sgY - 5);
-    // Nose bridge
     c.moveTo(-16, sgY - 3);
     c.quadraticCurveTo(0, sgY - 7, 16, sgY - 3);
     c.stroke();
 
-    // Left & right cool angled lenses
     for (const side of [-1, 1]) {
       c.save();
       c.translate(side * 37, sgY);
@@ -1029,7 +1735,6 @@
       c.lineWidth = 3.2;
       c.stroke();
 
-      // Crisp glossy lens reflection slash
       c.save();
       c.clip();
       const glintShift = st.glintProgress > 0 ? (st.glintProgress - 0.3) * 56 : 0;
@@ -1052,7 +1757,7 @@
     }
     c.restore();
 
-    // Smug cute ω smile mouth
+    // Smug ω smile
     c.strokeStyle = ink;
     c.lineWidth = 3.4;
     c.lineCap = 'round';
@@ -1065,30 +1770,21 @@
     c.quadraticCurveTo(13, 41, 25, 31);
     c.stroke();
 
-    // Iconic Small White Dog Bone (🦴) held in left corner of mouth! (Image 1 signature!)
-    const boneWiggle = motionEnabled ? Math.sin(scene.time * 4.2) * 0.06 + st.excitement * 0.12 : 0;
+    // Symmetrical White Mini Dog Bone (🦴) in mouth corner
+    const boneWiggle = Math.sin(inputState.time * 4.2) * 0.06 + st.excitement * 0.14;
     c.save();
     c.translate(-11, 34);
     c.rotate(-0.48 + boneWiggle);
 
-    const drawMiniBone = () => {
-      c.beginPath();
-      // Shaft top from mouth outward to left (-24)
-      c.moveTo(2, -3.4);
-      c.lineTo(-22, -3.4);
-      // Symmetrical upper-left bone knob
-      c.bezierCurveTo(-24, -10.5, -33, -9.5, -31.5, -2.2);
-      // Slight indent at outer tip between the two knobs
-      c.quadraticCurveTo(-29.5, 0, -31.5, 2.2);
-      // Symmetrical lower-left bone knob
-      c.bezierCurveTo(-33, 9.5, -24, 10.5, -22, 3.4);
-      // Shaft bottom back into mouth
-      c.lineTo(2, 3.4);
-      c.quadraticCurveTo(4.5, 0, 2, -3.4);
-      c.closePath();
-    };
-
-    drawMiniBone();
+    c.beginPath();
+    c.moveTo(2, -3.4);
+    c.lineTo(-22, -3.4);
+    c.bezierCurveTo(-24, -10.5, -33, -9.5, -31.5, -2.2);
+    c.quadraticCurveTo(-29.5, 0, -31.5, 2.2);
+    c.bezierCurveTo(-33, 9.5, -24, 10.5, -22, 3.4);
+    c.lineTo(2, 3.4);
+    c.quadraticCurveTo(4.5, 0, 2, -3.4);
+    c.closePath();
     c.fillStyle = '#FFFFFF';
     c.fill();
     c.strokeStyle = ink;
@@ -1096,7 +1792,6 @@
     c.lineJoin = 'round';
     c.stroke();
 
-    // Tiny comic wiggle ticks around bone tip matching Image 1!
     c.strokeStyle = ink;
     c.lineWidth = 2.0;
     c.lineCap = 'round';
@@ -1108,7 +1803,7 @@
     c.stroke();
     c.restore();
 
-    // Big glossy oval black retriever nose
+    // Big glossy black oval nose
     c.beginPath();
     c.ellipse(0, 16, 15.5, 10.5, 0, 0, Math.PI * 2);
     c.fillStyle = '#141210';
@@ -1119,12 +1814,12 @@
     c.ellipse(-4.5, 12.5, 4.2, 2.1, -0.25, 0, Math.PI * 2);
     c.fill();
 
-    c.restore(); // end face look offset
-    c.restore(); // end head transform
+    c.restore();
+    c.restore();
   }
 
   // =========================================================================
-  // CHARACTER 2 (图2): 🌼 蓝巾笑柴 (Daisy — Reference Happy Shiba in Squat Pose)
+  // CHARACTER 2 (图2): 🌼 蓝巾笑柴 (Daisy)
   // =========================================================================
   function drawMiniWhiteFlower(c, x, y, r) {
     c.save();
@@ -1143,11 +1838,10 @@
     c.restore();
   }
 
-  function drawDaisyTail(c, wagAngle, breath) {
+  function drawDaisyTail(c, bodyX, wagAngle, breath) {
     const outline = '#7A5134';
     c.save();
-    // Tail peeks out behind left hip just like Image 2!
-    c.translate(-68, -56 + breath * 0.3);
+    c.translate(bodyX - 68, -62 + breath * 0.3);
     c.rotate(-0.1 + wagAngle);
 
     const tailPath = () => {
@@ -1167,7 +1861,6 @@
     c.fillStyle = tg;
     c.fill();
 
-    // Soft cream highlight along upper tail curve
     c.save();
     tailPath();
     c.clip();
@@ -1186,31 +1879,28 @@
     c.restore();
   }
 
-  function drawDaisyBandana(c, st, breath) {
+  function drawDaisyBandana(c, st, bodyX, breath) {
     const outline = '#5B4A5E';
-    const y = -124 + breath * 0.55;
-    const flutter = motionEnabled ? Math.sin(scene.time * 3.1) * 0.05 + st.excitement * 0.1 : 0;
+    const y = -130 + breath * 0.55;
+    const flutter = Math.sin(inputState.time * 3.1) * 0.05 + st.excitement * 0.12 * Math.sin(inputState.time * 12);
 
     c.save();
-    c.translate(0, y);
+    c.translate(bodyX, y);
 
-    // Soft shadow beneath bandana
     c.fillStyle = 'rgba(120, 78, 36, 0.14)';
     c.beginPath();
     c.ellipse(0, 18, 66, 14, 0, 0, Math.PI * 2);
     c.fill();
 
-    // Right-side tied ribbon tails (viewer's right, exact match to Image 2!)
     c.save();
-    c.translate(56, 6);
+    c.translate(58, 4);
     c.rotate(flutter);
 
-    // Upper-right ribbon leaf
     const upperLeaf = () => {
       c.beginPath();
       c.moveTo(0, -4);
-      c.bezierCurveTo(22, -16, 52, -8, 62, 10);
-      c.bezierCurveTo(44, 18, 20, 12, 0, 4);
+      c.bezierCurveTo(22, -18, 52, -10, 62, 8);
+      c.bezierCurveTo(44, 16, 20, 12, 0, 4);
       c.closePath();
     };
     upperLeaf();
@@ -1218,7 +1908,7 @@
     c.fill();
     c.save();
     c.clip();
-    drawMiniWhiteFlower(c, 36, 3, 7.5);
+    drawMiniWhiteFlower(c, 36, 1, 7.5);
     c.restore();
     upperLeaf();
     c.strokeStyle = outline;
@@ -1226,12 +1916,11 @@
     c.lineJoin = 'round';
     c.stroke();
 
-    // Lower-right hanging floral ribbon leaf
     const lowerLeaf = () => {
       c.beginPath();
-      c.moveTo(-4, 2);
-      c.bezierCurveTo(18, 12, 34, 34, 26, 56);
-      c.bezierCurveTo(6, 50, -6, 30, -8, 8);
+      c.moveTo(-2, 2);
+      c.bezierCurveTo(22, 10, 42, 28, 36, 48);
+      c.bezierCurveTo(16, 46, 2, 28, -4, 8);
       c.closePath();
     };
     lowerLeaf();
@@ -1239,8 +1928,7 @@
     c.fill();
     c.save();
     c.clip();
-    drawMiniWhiteFlower(c, 12, 32, 8.2);
-    drawMiniWhiteFlower(c, 22, 49, 6.2);
+    drawMiniWhiteFlower(c, 19, 28, 7.8);
     c.restore();
     lowerLeaf();
     c.strokeStyle = outline;
@@ -1250,7 +1938,6 @@
 
     c.restore();
 
-    // Main curved periwinkle-blue floral scarf around neck
     const scarfPath = () => {
       c.beginPath();
       c.moveTo(-68, -14);
@@ -1271,7 +1958,6 @@
     c.fill();
     c.clip();
 
-    // Fabric fold crease
     c.strokeStyle = 'rgba(48, 84, 146, 0.32)';
     c.lineWidth = 2;
     c.beginPath();
@@ -1279,7 +1965,6 @@
     c.quadraticCurveTo(0, 24, 46, 6);
     c.stroke();
 
-    // White 5-petal daisies scattered across blue scarf
     drawMiniWhiteFlower(c, -44, -1, 8.0);
     drawMiniWhiteFlower(c, -12, 12, 8.6);
     drawMiniWhiteFlower(c, 22, 11, 8.2);
@@ -1292,9 +1977,8 @@
     c.lineJoin = 'round';
     c.stroke();
 
-    // Cute plump knot on right side
     c.save();
-    c.translate(50, 4);
+    c.translate(52, 3);
     c.rotate(-0.15);
     c.beginPath();
     c.ellipse(0, 0, 10.5, 9.5, 0, 0, Math.PI * 2);
@@ -1312,7 +1996,7 @@
     const outline = '#7A5134';
     c.save();
     c.translate(side * 64, -50);
-    c.rotate(side * (0.22 + kick * 0.12));
+    c.rotate(side * (0.22 + kick * 0.14));
 
     const earPath = () => {
       c.beginPath();
@@ -1340,7 +2024,6 @@
     c.fillStyle = eg;
     c.fill();
 
-    // Creamy white inner ear border
     c.beginPath();
     c.moveTo(side * -14, 16);
     c.bezierCurveTo(side * -8, -22, side * 6, -48, side * 19, -43);
@@ -1349,7 +2032,6 @@
     c.fillStyle = '#FFFDF9';
     c.fill();
 
-    // Soft dusty sakura-pink inner ear
     c.beginPath();
     c.moveTo(side * -7, 14);
     c.bezierCurveTo(side * -3, -14, side * 8, -34, side * 17, -30);
@@ -1358,7 +2040,6 @@
     c.fillStyle = '#E8A5AC';
     c.fill();
 
-    // Fluffy white ear-tuft strokes overlapping base
     c.strokeStyle = '#FFFDF9';
     c.lineWidth = 3.2;
     c.lineCap = 'round';
@@ -1372,36 +2053,33 @@
     c.restore();
   }
 
-  function drawDaisyCharacter(c, st, breath) {
+  function drawDaisyUpperBody(c, st, bodyX, breath) {
     const outline = '#7A5134';
     const lineW = 2.8;
-    const wag = Math.sin(st.tailPhase) * (0.14 + st.excitement * 0.24);
+    const wag = Math.sin(st.tailPhase) * (0.14 + st.excitement * 0.25);
 
-    // 1. Soft golden Shiba tail peeking behind left hip
-    drawDaisyTail(c, wag, breath);
+    drawDaisyTail(c, bodyX, wag, breath);
 
-    // 2. Squatting hind thighs & little white hind toes
     for (const side of [-1, 1]) {
-      defineSquatHindThighPath(c, side, breath);
+      defineSquatHindThighPath(c, bodyX, side, breath);
       c.fillStyle = '#E69140';
       c.fill();
       c.strokeStyle = outline;
       c.lineWidth = lineW;
       c.stroke();
 
-      defineTuckedHindPawPath(c, side);
+      defineTuckedHindPawPath(c, bodyX, side);
       c.fillStyle = '#FFFDF9';
       c.fill();
       c.strokeStyle = outline;
       c.lineWidth = 2.5;
       c.stroke();
-      drawHindPawToeCreases(c, side, outline, 2.0);
+      drawHindPawToeCreases(c, bodyX, side, outline, 2.0);
     }
 
-    // 3. Squatting torso (warm Shiba orange outer + snowy-white chest/belly)
     c.save();
-    defineSquatTorsoPath(c, breath);
-    const bodyGrad = c.createRadialGradient(0, -92, 16, 0, -64, 88);
+    defineSquatTorsoPath(c, bodyX, breath);
+    const bodyGrad = c.createRadialGradient(bodyX, -98, 16, bodyX, -64, 92);
     bodyGrad.addColorStop(0, '#F8BE6E');
     bodyGrad.addColorStop(0.6, '#EC9846');
     bodyGrad.addColorStop(1, '#DC8332');
@@ -1409,75 +2087,44 @@
     c.fill();
 
     c.save();
-    defineSquatTorsoPath(c, breath);
+    defineSquatTorsoPath(c, bodyX, breath);
     c.clip();
-    const bellyGrad = c.createLinearGradient(0, -116, 0, -16);
+    const bellyGrad = c.createLinearGradient(bodyX, -120, bodyX, -12);
     bellyGrad.addColorStop(0, '#FFFFFF');
     bellyGrad.addColorStop(0.8, '#FFFDF9');
     bellyGrad.addColorStop(1, '#F5ECE0');
     c.fillStyle = bellyGrad;
     c.beginPath();
-    c.ellipse(0, -56 + breath * 0.25, 44, 58, 0, 0, Math.PI * 2);
+    c.ellipse(bodyX, -58 + breath * 0.25, 46, 62, 0, 0, Math.PI * 2);
     c.fill();
     c.restore();
 
-    defineSquatTorsoPath(c, breath);
+    defineSquatTorsoPath(c, bodyX, breath);
     c.strokeStyle = outline;
     c.lineWidth = lineW;
     c.stroke();
     c.restore();
 
-    // 4. Two plump front legs & snowy-white paws resting on ground (exact Image 2!)
-    for (const side of [-1, 1]) {
-      defineFrontLegAndPawPath(c, side, breath);
-      // Smooth gradient from toasted orange upper leg to snowy cream-white lower leg & paw!
-      const legGrad = c.createLinearGradient(0, -104, 0, 4);
-      legGrad.addColorStop(0, '#EE9C4B');
-      legGrad.addColorStop(0.36, '#F7BE72');
-      legGrad.addColorStop(0.62, '#FFFBF4');
-      legGrad.addColorStop(1, '#FFFDF9');
-      c.fillStyle = legGrad;
-      c.fill();
+    drawDaisyBandana(c, st, bodyX, breath);
 
-      c.beginPath();
-      c.moveTo(side * 58, -98 + breath * 0.4);
-      c.bezierCurveTo(side * 63, -74, side * 59, -42, side * 56, -22);
-      c.bezierCurveTo(side * 62, -12, side * 59, 3, side * 42, 4);
-      c.bezierCurveTo(side * 33, 5.5, side * 23, 5.5, side * 15, 3.5);
-      c.bezierCurveTo(side * 8, 1, side * 9, -12, side * 13, -22);
-      c.bezierCurveTo(side * 12, -40, side * 11.5, -58, side * 13, -72 + breath * 0.35);
-      c.strokeStyle = outline;
-      c.lineWidth = lineW;
-      c.lineCap = 'round';
-      c.lineJoin = 'round';
-      c.stroke();
-
-      drawPawToeCreases(c, side, '#8C684C', 2.2);
-    }
-
-    // 5. Sky-Blue Floral Bandana
-    drawDaisyBandana(c, st, breath);
-
-    // 6. Big Plush Smiling Shiba Head (Image 2 Reference)
-    const headY = -204 + breath * 0.85 - st.bounce * 8;
-    const headTilt = st.baseTilt + st.lookX * 0.05;
+    const headX = bodyX + st.lookX * 4;
+    const headY = -210 + breath * 0.85 + st.bounce * 4.5;
+    const headTilt = st.baseTilt + st.leanX * 0.002 + st.lookX * 0.04;
 
     c.save();
-    c.translate(st.lookX * 4, headY);
+    c.translate(headX, headY);
     c.rotate(headTilt);
 
-    // Unified ear + head outline
-    drawDaisyEar(c, -1, st.earKick, 'stroke');
-    drawDaisyEar(c, 1, st.earKick, 'stroke');
+    drawDaisyEar(c, -1, st.leftEarKick, 'stroke');
+    drawDaisyEar(c, 1, st.rightEarKick, 'stroke');
     definePlumpPuppyHeadPath(c);
     c.strokeStyle = outline;
     c.lineWidth = lineW * 2;
     c.lineJoin = 'round';
     c.stroke();
 
-    // Ear & Head warm toasted Shiba-orange fills
-    drawDaisyEar(c, -1, st.earKick, 'fill');
-    drawDaisyEar(c, 1, st.earKick, 'fill');
+    drawDaisyEar(c, -1, st.leftEarKick, 'fill');
+    drawDaisyEar(c, 1, st.rightEarKick, 'fill');
 
     definePlumpPuppyHeadPath(c);
     const hg = c.createRadialGradient(-16, -48, 16, 0, 4, 130);
@@ -1487,7 +2134,6 @@
     c.fillStyle = hg;
     c.fill();
 
-    // Snowy-white Shiba Urajiro cheek mask + soft white eyebrow dots + colored-pencil fur strokes
     c.save();
     definePlumpPuppyHeadPath(c);
     c.clip();
@@ -1508,7 +2154,6 @@
     c.fillStyle = fg;
     c.fill();
 
-    // Soft white oval Shiba eyebrow dots (豆眉) matching Image 2!
     c.fillStyle = 'rgba(255, 253, 248, 0.92)';
     c.beginPath();
     c.ellipse(-34, -40, 12, 7.5, -0.22, 0, Math.PI * 2);
@@ -1517,7 +2162,6 @@
     c.ellipse(34, -40, 12, 7.5, 0.22, 0, Math.PI * 2);
     c.fill();
 
-    // Soft golden highlight arc along forehead instead of rigid lines
     c.strokeStyle = 'rgba(255, 238, 198, 0.55)';
     c.lineWidth = 4.5;
     c.lineCap = 'round';
@@ -1526,13 +2170,11 @@
     c.stroke();
     c.restore();
 
-    // Joyous Face Features
     const fx = st.lookX * 4.5;
     const fy = st.lookY * 3.0;
     c.save();
     c.translate(fx, fy);
 
-    // Airbrushed rosy-pink cheeks + pastel blush strokes
     for (const side of [-1, 1]) {
       const bx = side * 66;
       const by = 18;
@@ -1555,7 +2197,6 @@
       }
     }
 
-    // Happy arched smiling crescent eyes (◠ ◠)
     for (const side of [-1, 1]) {
       c.save();
       c.translate(side * 42, -8 - st.bounce * 1.5);
@@ -1566,7 +2207,6 @@
       c.arc(0, 9, 17, Math.PI * 1.14, Math.PI * 1.86);
       c.stroke();
 
-      // Subtle outer happy eyelash flick
       c.lineWidth = 3.0;
       c.beginPath();
       c.moveTo(side * 14, 2);
@@ -1575,8 +2215,7 @@
       c.restore();
     }
 
-    // Wide joyful open laugh mouth + plump rosy-pink puppy tongue!
-    const pant = motionEnabled ? Math.sin(scene.time * 4.8) * 1.6 + st.excitement * 4.5 : 0;
+    const pant = Math.sin(inputState.time * 4.8) * 1.6 + st.excitement * 4.8;
     const mouthPath = () => {
       c.beginPath();
       c.moveTo(-29, 20);
@@ -1591,7 +2230,6 @@
     c.fillStyle = '#4B2424';
     c.fill();
 
-    // Rosy pink tongue hanging happily out
     c.save();
     c.clip();
     const tg = c.createLinearGradient(0, 28, 0, 64 + pant);
@@ -1603,7 +2241,6 @@
     c.ellipse(0, 46 + pant * 0.85, 18.5, 21, 0, 0, Math.PI * 2);
     c.fill();
 
-    // Central tongue groove
     c.strokeStyle = '#D96D7D';
     c.lineWidth = 2.0;
     c.lineCap = 'round';
@@ -1620,7 +2257,6 @@
     c.stroke();
     c.restore();
 
-    // Upper smiling ω lip curves framing the nose & laugh
     c.strokeStyle = '#3B231A';
     c.lineWidth = 3.2;
     c.lineCap = 'round';
@@ -1633,7 +2269,6 @@
     c.bezierCurveTo(8, 30, 24, 29, 32, 18);
     c.stroke();
 
-    // Delicate muzzle whiskers matching Image 2
     c.strokeStyle = 'rgba(110, 82, 66, 0.38)';
     c.lineWidth = 1.4;
     for (const side of [-1, 1]) {
@@ -1645,7 +2280,6 @@
       c.stroke();
     }
 
-    // Cute dark textured dog nose with nostrils & highlight
     c.beginPath();
     c.moveTo(0, 2);
     c.bezierCurveTo(12, 1.5, 15, 9, 9, 15);
@@ -1660,18 +2294,17 @@
     c.ellipse(-3.6, 6.2, 3.8, 1.9, -0.3, 0, Math.PI * 2);
     c.fill();
 
-    c.restore(); // end face look
-    c.restore(); // end head
+    c.restore();
+    c.restore();
   }
 
   // =========================================================================
-  // CHARACTER 3 (图3): 🖤 歪头黑柴 (Kuro — Fluffy Black-and-Tan Shiba in Squat Pose)
+  // CHARACTER 3 (图3): 🖤 歪头黑柴 (Kuro)
   // =========================================================================
-  function drawKuroTail(c, wagAngle, breath) {
+  function drawKuroTail(c, bodyX, wagAngle, breath) {
     const ink = '#0B0C0E';
     c.save();
-    // Fluffy curled black brush tail peeking out behind left hip (matches Image 2 & Image 3!)
-    c.translate(-66, -54 + breath * 0.3);
+    c.translate(bodyX - 66, -60 + breath * 0.3);
     c.rotate(-0.08 + wagAngle);
 
     const spikyTailPath = () => {
@@ -1703,7 +2336,6 @@
     c.fillStyle = tg;
     c.fill();
 
-    // Subtle cream-white under-tail fur peek matching Image 3
     c.strokeStyle = 'rgba(248, 238, 224, 0.55)';
     c.lineWidth = 2.2;
     c.lineCap = 'round';
@@ -1725,7 +2357,7 @@
     const ink = '#0B0C0E';
     c.save();
     c.translate(side * 64, -52);
-    c.rotate(side * (0.24 + kick * 0.12));
+    c.rotate(side * (0.24 + kick * 0.14));
 
     const earPath = () => {
       c.beginPath();
@@ -1749,7 +2381,6 @@
     c.fillStyle = '#191B20';
     c.fill();
 
-    // Warm peachy-tan inner ear matching Image 3!
     c.beginPath();
     c.moveTo(side * -12, 15);
     c.bezierCurveTo(side * -6, -20, side * 7, -46, side * 19, -41);
@@ -1761,7 +2392,6 @@
     c.fillStyle = ig;
     c.fill();
 
-    // Fluffy black ear-base fur tufts overlapping inner ear bottom
     c.fillStyle = '#191B20';
     c.beginPath();
     c.moveTo(side * -14, 18);
@@ -1775,12 +2405,10 @@
     c.restore();
   }
 
-  // Fluffy cheek-tufted head path for Kuro matching Image 3's fuzzy fur silhouette!
   function defineKuroFluffyHeadPath(c) {
     c.beginPath();
     c.moveTo(0, -92);
     c.bezierCurveTo(56, -92, 100, -52, 106, -6);
-    // Right fuzzy cheek fur tufts
     c.lineTo(115, 4);
     c.lineTo(109, 10);
     c.lineTo(117, 22);
@@ -1788,7 +2416,6 @@
     c.lineTo(112, 39);
     c.bezierCurveTo(96, 68, 56, 84, 0, 84);
     c.bezierCurveTo(-56, 84, -96, 68, -112, 39);
-    // Left fuzzy cheek fur tufts
     c.lineTo(-108, 27);
     c.lineTo(-117, 22);
     c.lineTo(-109, 10);
@@ -1820,19 +2447,16 @@
     const gx = lookX * 2.8;
     const gy = lookY * 2.0;
 
-    // Signature crisp white outer-lower eye rim from Image 3 that makes black eyes sparkle!
     c.fillStyle = '#FFFFFF';
     c.beginPath();
     c.ellipse(gx + side * 1.8, gy + 1.5, 15.8, 16.8, 0, 0, Math.PI * 2);
     c.fill();
 
-    // Deep glossy dark eye
     c.fillStyle = '#0F0E11';
     c.beginPath();
     c.ellipse(gx, gy, 14.8, 16.0, 0, 0, Math.PI * 2);
     c.fill();
 
-    // Subtle warm espresso lower iris glow
     const ig = c.createRadialGradient(gx, gy + 6, 1, gx, gy + 6, 10);
     ig.addColorStop(0, 'rgba(92, 58, 38, 0.55)');
     ig.addColorStop(1, 'rgba(15, 14, 17, 0)');
@@ -1841,7 +2465,6 @@
     c.ellipse(gx, gy + 6, 10, 6.5, 0, 0, Math.PI * 2);
     c.fill();
 
-    // Bright upper catchlight + tiny lower sparkle
     c.fillStyle = '#FFFFFF';
     c.beginPath();
     c.ellipse(gx - 4.5, gy - 5.5, 4.8, 4.2, -0.25, 0, Math.PI * 2);
@@ -1854,25 +2477,23 @@
     c.restore();
   }
 
-  function drawKuroCharacter(c, st, breath) {
+  function drawKuroUpperBody(c, st, bodyX, breath) {
     const ink = '#0B0C0E';
     const lineW = 3.2;
-    const wag = Math.sin(st.tailPhase) * (0.14 + st.excitement * 0.24);
+    const wag = Math.sin(st.tailPhase) * (0.14 + st.excitement * 0.25);
 
-    // 1. Fluffy curled black Shiba tail behind left hip
-    drawKuroTail(c, wag, breath);
+    drawKuroTail(c, bodyX, wag, breath);
 
-    // 2. Squatting black hind thighs + tan/white tucked hind paws
     for (const side of [-1, 1]) {
-      defineSquatHindThighPath(c, side, breath);
+      defineSquatHindThighPath(c, bodyX, side, breath);
       c.fillStyle = '#181A1F';
       c.fill();
       c.strokeStyle = ink;
       c.lineWidth = lineW;
       c.stroke();
 
-      defineTuckedHindPawPath(c, side);
-      const hpg = c.createLinearGradient(side * 56, -24, side * 84, -10);
+      defineTuckedHindPawPath(c, bodyX, side);
+      const hpg = c.createLinearGradient(bodyX + side * 56, -24, bodyX + side * 84, -10);
       hpg.addColorStop(0, '#E8A86E');
       hpg.addColorStop(0.55, '#FCF3E6');
       hpg.addColorStop(1, '#FFFFFF');
@@ -1881,102 +2502,26 @@
       c.strokeStyle = ink;
       c.lineWidth = 2.8;
       c.stroke();
-      drawHindPawToeCreases(c, side, ink, 2.2);
+      drawHindPawToeCreases(c, bodyX, side, ink, 2.2);
     }
 
-    // 3. Squatting black torso + fluffy white winged V-shaped chest fur tuft (Image 3 signature!)
     c.save();
-    defineSquatTorsoPath(c, breath);
-    const bodyGrad = c.createRadialGradient(0, -96, 12, 0, -64, 92);
+    defineSquatTorsoPath(c, bodyX, breath);
+    const bodyGrad = c.createRadialGradient(bodyX, -100, 12, bodyX, -64, 94);
     bodyGrad.addColorStop(0, '#292C34');
     bodyGrad.addColorStop(0.65, '#191B20');
     bodyGrad.addColorStop(1, '#111317');
     c.fillStyle = bodyGrad;
     c.fill();
-
-    // Creamy-white winged V-chest fur patch clipped inside torso
-    c.save();
-    defineSquatTorsoPath(c, breath);
-    c.clip();
-
-    const chestY = -98 + breath * 0.45;
-    c.fillStyle = '#FCF3E6';
-    c.beginPath();
-    c.moveTo(0, chestY + 8);
-    c.quadraticCurveTo(26, chestY - 2, 52, chestY + 4);
-    c.lineTo(44, chestY + 14);
-    c.lineTo(50, chestY + 20);
-    c.lineTo(32, chestY + 26);
-    c.lineTo(36, chestY + 33);
-    c.lineTo(14, chestY + 34);
-    c.lineTo(0, chestY + 44);
-    c.lineTo(-14, chestY + 34);
-    c.lineTo(-36, chestY + 33);
-    c.lineTo(-32, chestY + 26);
-    c.lineTo(-50, chestY + 20);
-    c.lineTo(-44, chestY + 14);
-    c.lineTo(-52, chestY + 4);
-    c.quadraticCurveTo(-26, chestY - 2, 0, chestY + 8);
-    c.closePath();
-    c.fill();
-    c.restore();
-
-    defineSquatTorsoPath(c, breath);
     c.strokeStyle = ink;
     c.lineWidth = lineW;
     c.stroke();
     c.restore();
 
-    // 4. Two front legs in Image 2 squat pose with Image 3's tri-color stockings (Black -> Tan -> White Paws!)
-    for (const side of [-1, 1]) {
-      c.save();
-      defineFrontLegAndPawPath(c, side, breath);
-      c.clip();
-
-      // Base black upper leg
-      c.fillStyle = '#191B20';
-      c.fillRect(side * 66, -112, -side * 62, 122);
-
-      // Warm tan lower stocking starting with fuzzy fur zigzags at y = -54
-      c.fillStyle = '#E8A86E';
-      c.beginPath();
-      c.moveTo(side * 8, -50);
-      c.lineTo(side * 22, -58);
-      c.lineTo(side * 30, -51);
-      c.lineTo(side * 42, -59);
-      c.lineTo(side * 64, -48);
-      c.lineTo(side * 64, 10);
-      c.lineTo(side * 8, 10);
-      c.closePath();
-      c.fill();
-
-      // Crisp snowy-white front paw sock at bottom (y = -15 .. +6)
-      c.fillStyle = '#FFFDF9';
-      c.beginPath();
-      c.ellipse(side * 34, -1, 29, 14.5, 0, 0, Math.PI * 2);
-      c.fill();
-      c.restore();
-
-      // Outer ink stroke for front leg & paw
-      c.beginPath();
-      c.moveTo(side * 58, -98 + breath * 0.4);
-      c.bezierCurveTo(side * 63, -74, side * 59, -42, side * 56, -22);
-      c.bezierCurveTo(side * 62, -12, side * 59, 3, side * 42, 4);
-      c.bezierCurveTo(side * 33, 5.5, side * 23, 5.5, side * 15, 3.5);
-      c.bezierCurveTo(side * 8, 1, side * 9, -12, side * 13, -22);
-      c.bezierCurveTo(side * 12, -46, side * 11, -72, side * 14, -88 + breath * 0.35);
-      c.strokeStyle = ink;
-      c.lineWidth = lineW;
-      c.lineCap = 'round';
-      c.lineJoin = 'round';
-      c.stroke();
-
-      drawPawToeCreases(c, side, ink, 2.5);
-    }
-
-    // 5. Natural U-curved Fluffy Black Neck Ruff + Prominent White Winged V-Chest Patch!
-    const ruffY = -124 + breath * 0.55;
+    // Fluffy Black Neck Ruff + Prominent White Winged V-Chest Patch
+    const ruffY = -130 + breath * 0.55;
     c.save();
+    c.translate(bodyX, 0);
     c.beginPath();
     c.moveTo(-54, ruffY - 2);
     c.lineTo(-58, ruffY + 8);
@@ -1997,45 +2542,45 @@
     c.fillStyle = '#191B20';
     c.fill();
 
-    // Prominent fluffy white V-chest fur patch resting right below the neck ruff (visible between front shoulders!)
     const vY = ruffY + 22;
     c.fillStyle = '#FCF3E6';
     c.beginPath();
     c.moveTo(0, vY + 3);
-    c.quadraticCurveTo(22, vY - 3, 44, vY + 2);
-    c.lineTo(37, vY + 11);
-    c.lineTo(42, vY + 16);
-    c.lineTo(26, vY + 22);
-    c.lineTo(14, vY + 26);
-    c.lineTo(0, vY + 38);
-    c.lineTo(-14, vY + 26);
-    c.lineTo(-26, vY + 22);
-    c.lineTo(-42, vY + 16);
-    c.lineTo(-37, vY + 11);
-    c.lineTo(-44, vY + 2);
-    c.quadraticCurveTo(-22, vY - 3, 0, vY + 3);
+    c.quadraticCurveTo(24, vY - 3, 48, vY + 3);
+    c.lineTo(40, vY + 13);
+    c.lineTo(45, vY + 19);
+    c.lineTo(28, vY + 26);
+    c.lineTo(14, vY + 30);
+    c.lineTo(0, vY + 44);
+    c.lineTo(-14, vY + 30);
+    c.lineTo(-28, vY + 26);
+    c.lineTo(-45, vY + 19);
+    c.lineTo(-40, vY + 13);
+    c.lineTo(-48, vY + 3);
+    c.quadraticCurveTo(-24, vY - 3, 0, vY + 3);
     c.closePath();
     c.fill();
     c.restore();
 
-    // 6. Fluffy Black-and-Tan Shiba Head with Signature Cute Head Tilt!
-    const headY = -204 + breath * 0.85 - st.bounce * 8;
-    const headTilt = st.baseTilt + st.lookX * 0.05;
+    // Head with signature cute rightward tilt
+    const headX = bodyX + st.lookX * 4;
+    const headY = -210 + breath * 0.85 + st.bounce * 4.5;
+    const headTilt = st.baseTilt + st.leanX * 0.002 + st.lookX * 0.04;
 
     c.save();
-    c.translate(st.lookX * 4, headY);
+    c.translate(headX, headY);
     c.rotate(headTilt);
 
-    drawKuroEar(c, -1, st.earKick, 'stroke');
-    drawKuroEar(c, 1, st.earKick, 'stroke');
+    drawKuroEar(c, -1, st.leftEarKick, 'stroke');
+    drawKuroEar(c, 1, st.rightEarKick, 'stroke');
     defineKuroFluffyHeadPath(c);
     c.strokeStyle = ink;
     c.lineWidth = lineW * 2;
     c.lineJoin = 'round';
     c.stroke();
 
-    drawKuroEar(c, -1, st.earKick, 'fill');
-    drawKuroEar(c, 1, st.earKick, 'fill');
+    drawKuroEar(c, -1, st.leftEarKick, 'fill');
+    drawKuroEar(c, 1, st.rightEarKick, 'fill');
 
     defineKuroFluffyHeadPath(c);
     const hg = c.createRadialGradient(-18, -46, 12, 0, 4, 130);
@@ -2045,19 +2590,16 @@
     c.fillStyle = hg;
     c.fill();
 
-    // Cream-ivory lower cheeks/muzzle + tan cheek accents + tan eyebrow spots (豆眉)
     c.save();
     defineKuroFluffyHeadPath(c);
     c.clip();
 
-    // Tan transition border right at upper cheek / outer eye corners
     c.fillStyle = '#E6A56A';
     c.beginPath();
     c.ellipse(-58, 12, 34, 18, -0.22, 0, Math.PI * 2);
     c.ellipse(58, 12, 34, 18, 0.22, 0, Math.PI * 2);
     c.fill();
 
-    // Plush creamy-ivory lower cheeks & muzzle curving up at nose bridge
     c.beginPath();
     c.moveTo(-104, 20);
     c.bezierCurveTo(-76, 6, -48, 14, -26, 16);
@@ -2075,7 +2617,6 @@
     c.fillStyle = cg;
     c.fill();
 
-    // Soft grey-beige chin shadow tuft at bottom center
     c.fillStyle = 'rgba(206, 186, 166, 0.45)';
     c.beginPath();
     c.ellipse(0, 76, 36, 12, 0, 0, Math.PI * 2);
@@ -2083,13 +2624,11 @@
 
     c.restore();
 
-    // Face Features
     const fx = st.lookX * 4.5;
     const fy = st.lookY * 3.0;
     c.save();
     c.translate(fx, fy);
 
-    // Classic Black-Shiba warm tan oval eyebrow dots (豆眉) matching Image 3!
     c.fillStyle = '#EEB67E';
     c.beginPath();
     c.ellipse(-28, -28, 11.5, 7.2, 0.28, 0, Math.PI * 2);
@@ -2098,18 +2637,15 @@
     c.ellipse(28, -28, 11.5, 7.2, -0.28, 0, Math.PI * 2);
     c.fill();
 
-    // Big soulful glossy dark puppy eyes
     const blinkAmount = st.blinkProgress > 0 ? Math.sin(st.blinkProgress) : 0;
     drawKuroEye(c, -40, -3, -1, blinkAmount, st.lookX, st.lookY);
     drawKuroEye(c, 40, -3, 1, blinkAmount, st.lookX, st.lookY);
 
-    // Subtle soft muzzle shading mound
     c.fillStyle = 'rgba(218, 198, 176, 0.35)';
     c.beginPath();
     c.ellipse(0, 26, 20, 14, 0, 0, Math.PI * 2);
     c.fill();
 
-    // Gentle sweet puppy ω smile with softly upturned corners (matching Image 3!)
     c.strokeStyle = ink;
     c.lineWidth = 2.9;
     c.lineCap = 'round';
@@ -2122,7 +2658,6 @@
     c.bezierCurveTo(5, 32, 13, 34, 19, 29.5);
     c.stroke();
 
-    // Delicate cheek whisker ticks matching Image 3
     c.strokeStyle = 'rgba(42, 34, 28, 0.55)';
     c.lineWidth = 1.5;
     for (const side of [-1, 1]) {
@@ -2134,7 +2669,6 @@
       c.stroke();
     }
 
-    // Glossy black button nose
     c.beginPath();
     c.moveTo(0, 7);
     c.bezierCurveTo(11, 6.5, 14, 13, 8, 18.5);
@@ -2149,90 +2683,611 @@
     c.ellipse(-3.5, 10.8, 3.6, 1.8, -0.3, 0, Math.PI * 2);
     c.fill();
 
-    c.restore(); // end face look
-    c.restore(); // end head
+    c.restore();
+    c.restore();
   }
 
   // =========================================================================
-  // Unified Character Dispatcher + Ground Shadow & Labels
+  // Per-Puppy Mechanical Keyboard & Mouse (With L / R Button Highlight!)
   // =========================================================================
-  function drawGroundShadowForDog(c, dogId) {
+  function getDeskTheme(dogId) {
+    if (dogId === 'sunny') {
+      return {
+        kbBase: '#5A4A36',
+        kbTop1: '#F2DDA8',
+        kbTop2: '#DEC07C',
+        kbStroke: '#181411',
+        kbStrokeW: 2.8,
+        kbWell: '#483B2B',
+        capSide: '#D8C8A8',
+        capTop: '#FFFDF5',
+        capText: '#2E2418',
+        accentTop1: '#FFB94E',
+        accentTop2: '#F08E26',
+        padFill: isDarkTheme ? 'rgba(248, 212, 128, 0.14)' : 'rgba(242, 206, 122, 0.35)',
+        padStroke: isDarkTheme ? 'rgba(248, 212, 128, 0.3)' : 'rgba(168, 124, 48, 0.32)',
+        mouseStroke: '#181411',
+      };
+    }
+    if (dogId === 'daisy') {
+      return {
+        kbBase: '#55657F',
+        kbTop1: '#8AA8D8',
+        kbTop2: '#6F8FC4',
+        kbStroke: '#5C483B',
+        kbStrokeW: 2.4,
+        kbWell: '#4E5D77',
+        capSide: '#CFD9E8',
+        capTop: '#FFFDF9',
+        capText: '#493D36',
+        accentTop1: '#FFC266',
+        accentTop2: '#F59E36',
+        padFill: isDarkTheme ? 'rgba(116, 166, 236, 0.16)' : 'rgba(134, 182, 242, 0.34)',
+        padStroke: isDarkTheme ? 'rgba(140, 186, 248, 0.3)' : 'rgba(92, 138, 202, 0.38)',
+        mouseStroke: '#6A4E3B',
+      };
+    }
+    return {
+      kbBase: '#12141A',
+      kbTop1: '#2D313C',
+      kbTop2: '#1E2129',
+      kbStroke: '#0B0C0E',
+      kbStrokeW: 2.6,
+      kbWell: '#13151B',
+      capSide: '#CFD5DF',
+      capTop: '#F8F9FB',
+      capText: '#262A34',
+      accentTop1: '#F2B476',
+      accentTop2: '#DE9248',
+      padFill: isDarkTheme ? 'rgba(255, 255, 255, 0.08)' : 'rgba(42, 46, 56, 0.1)',
+      padStroke: isDarkTheme ? 'rgba(255, 255, 255, 0.18)' : 'rgba(42, 46, 56, 0.22)',
+      mouseStroke: '#1A1D24',
+    };
+  }
+
+  function drawPuppyKeyboard(c, dogId) {
+    const dt = getDeskTheme(dogId);
+    const hw = KB_LOCAL.w * 0.5;
+    const hh = KB_LOCAL.h * 0.5;
+
     c.save();
-    if (dogId === 'daisy' && !isDarkTheme) {
-      c.fillStyle = 'rgba(116, 168, 232, 0.34)';
-      c.beginPath();
-      c.ellipse(0, -4, 106, 23, 0, 0, Math.PI * 2);
+    c.translate(KB_LOCAL.cx, KB_LOCAL.cy);
+    c.rotate(KB_LOCAL.angle);
+
+    // Drop shadow
+    c.fillStyle = isDarkTheme ? 'rgba(0, 0, 0, 0.44)' : 'rgba(56, 78, 112, 0.2)';
+    roundRectPath(c, -hw + 2, -hh + 6, KB_LOCAL.w, KB_LOCAL.h, 12);
+    c.fill();
+
+    // 3D Bottom case lip
+    roundRectPath(c, -hw, -hh + 3.5, KB_LOCAL.w, KB_LOCAL.h, 11);
+    c.fillStyle = dt.kbBase;
+    c.fill();
+
+    // Top bezel frame
+    roundRectPath(c, -hw, -hh, KB_LOCAL.w, KB_LOCAL.h - 1.5, 11);
+    const fg = c.createLinearGradient(0, -hh, 0, hh);
+    fg.addColorStop(0, dt.kbTop1);
+    fg.addColorStop(1, dt.kbTop2);
+    c.fillStyle = fg;
+    c.fill();
+    c.strokeStyle = dt.kbStroke;
+    c.lineWidth = dt.kbStrokeW;
+    c.stroke();
+
+    // Inner switch plate well
+    roundRectPath(c, -hw + 5.5, -hh + 5.5, KB_LOCAL.w - 11, KB_LOCAL.h - 12.5, 7);
+    c.fillStyle = dt.kbWell;
+    c.fill();
+
+    // Individual keycaps
+    for (const k of keysList) {
+      drawKeycapLocal(c, k, dt);
+    }
+
+    c.restore();
+  }
+
+  function drawKeycapLocal(c, k, dt) {
+    const pressOffset = k.press * 2.1;
+    const glow = k.glow;
+
+    c.save();
+    if (glow > 0.04) {
+      c.save();
+      c.shadowColor = 'rgba(255, 162, 42, 0.92)';
+      c.shadowBlur = 10 * glow;
+      roundRectPath(c, k.lx - 0.4, k.ly + pressOffset - 0.4, k.w + 0.8, k.h, 4.2);
+      c.fillStyle = `rgba(255, 174, 58, ${(0.58 * glow).toFixed(3)})`;
       c.fill();
+      c.restore();
+    }
+
+    // Keycap side skirt
+    roundRectPath(c, k.lx, k.ly + 1.2, k.w, k.h - 0.4, 3.6);
+    c.fillStyle = glow > 0.12 ? '#D97412' : k.accent ? '#D47F22' : dt.capSide;
+    c.fill();
+
+    // Keycap top surface
+    const capH = Math.max(6, k.h - 2.8);
+    roundRectPath(c, k.lx + 0.3, k.ly + pressOffset, k.w - 0.6, capH, 3.2);
+    if (glow > 0.06) {
+      const g = c.createLinearGradient(k.lx, k.ly + pressOffset, k.lx, k.ly + pressOffset + capH);
+      g.addColorStop(0, '#FFD676');
+      g.addColorStop(1, '#FF9220');
+      c.fillStyle = g;
+    } else if (k.accent) {
+      const ag = c.createLinearGradient(k.lx, k.ly, k.lx, k.ly + capH);
+      ag.addColorStop(0, dt.accentTop1);
+      ag.addColorStop(1, dt.accentTop2);
+      c.fillStyle = ag;
     } else {
-      c.fillStyle = isDarkTheme ? 'rgba(0, 0, 0, 0.38)' : 'rgba(92, 74, 56, 0.14)';
+      c.fillStyle = dt.capTop;
+    }
+    c.fill();
+
+    if (k.label) {
+      const fontSize = k.label.length >= 4 ? 5.8 : k.label.length >= 2 ? 6.5 : 7.4;
+      c.font = `700 ${fontSize}px -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif`;
+      c.textAlign = 'center';
+      c.textBaseline = 'middle';
+      c.fillStyle = glow > 0.25 ? '#3F1D04' : k.accent ? '#FFFFFF' : dt.capText;
+      c.fillText(k.label, k.lcx, k.ly + pressOffset + capH * 0.54);
+    }
+
+    c.restore();
+  }
+
+  function defineMouseShellPath(c, hw, hh) {
+    c.beginPath();
+    c.moveTo(0, -hh);
+    c.bezierCurveTo(hw * 0.88, -hh, hw, -hh * 0.55, hw, 0);
+    c.bezierCurveTo(hw, hh * 0.62, hw * 0.86, hh, 0, hh);
+    c.bezierCurveTo(-hw * 0.86, hh, -hw, hh * 0.62, -hw, 0);
+    c.bezierCurveTo(-hw, -hh * 0.55, -hw * 0.88, -hh, 0, -hh);
+    c.closePath();
+  }
+
+  function drawPuppyMouseAndPad(c, dogId) {
+    const dt = getDeskTheme(dogId);
+
+    // 1. Cozy Rounded Mouse Pad underneath mouse
+    c.save();
+    const mpHW = MOUSE_PAD_LOCAL.w * 0.5;
+    const mpHH = MOUSE_PAD_LOCAL.h * 0.5;
+    roundRectPath(
+      c,
+      MOUSE_PAD_LOCAL.cx - mpHW,
+      MOUSE_PAD_LOCAL.cy - mpHH,
+      MOUSE_PAD_LOCAL.w,
+      MOUSE_PAD_LOCAL.h,
+      18
+    );
+    c.fillStyle = dt.padFill;
+    c.fill();
+    c.strokeStyle = dt.padStroke;
+    c.lineWidth = 1.8;
+    c.stroke();
+    c.restore();
+
+    // 2. Interactive Mouse with Distinct Left (L) & Right (R) Highlightable Buttons!
+    const hw = MOUSE_SIZE_LOCAL.w * 0.5;
+    const hh = MOUSE_SIZE_LOCAL.h * 0.5;
+    const splitY = 1;
+
+    c.save();
+    c.translate(inputState.mouseLX, inputState.mouseLY);
+    c.rotate(inputState.mouseTilt);
+
+    // Mouse shadow
+    c.fillStyle = isDarkTheme ? 'rgba(0, 0, 0, 0.42)' : 'rgba(56, 78, 112, 0.22)';
+    c.beginPath();
+    c.ellipse(1.5, 5, hw * 1.04, hh * 0.98, 0, 0, Math.PI * 2);
+    c.fill();
+
+    // Left-button outer aura when clicked
+    if (inputState.leftGlow > 0.04) {
+      const lAura = c.createRadialGradient(-hw * 0.45, hh * 0.45, 2, -hw * 0.45, hh * 0.45, 44);
+      lAura.addColorStop(0, `rgba(255, 116, 68, ${(0.78 * inputState.leftGlow).toFixed(3)})`);
+      lAura.addColorStop(1, 'rgba(255, 116, 68, 0)');
+      c.fillStyle = lAura;
       c.beginPath();
-      c.ellipse(0, -4, 102, 21, 0, 0, Math.PI * 2);
+      c.arc(-hw * 0.45, hh * 0.45, 44, 0, Math.PI * 2);
       c.fill();
     }
 
-    // Crisp hand-drawn ground sketch lines for Kuro (matching Image 3!)
-    if (dogId === 'kuro') {
-      c.strokeStyle = isDarkTheme ? 'rgba(255,255,255,0.18)' : 'rgba(30, 32, 36, 0.28)';
-      c.lineWidth = 2.0;
-      c.lineCap = 'round';
+    // Right-button outer aura when clicked
+    if (inputState.rightGlow > 0.04) {
+      const rAura = c.createRadialGradient(hw * 0.45, hh * 0.45, 2, hw * 0.45, hh * 0.45, 44);
+      rAura.addColorStop(0, `rgba(56, 189, 248, ${(0.78 * inputState.rightGlow).toFixed(3)})`);
+      rAura.addColorStop(1, 'rgba(56, 189, 248, 0)');
+      c.fillStyle = rAura;
       c.beginPath();
-      c.moveTo(-98, 2);
-      c.lineTo(-62, 3);
-      c.moveTo(60, 3);
-      c.lineTo(96, 1);
+      c.arc(hw * 0.45, hh * 0.45, 44, 0, Math.PI * 2);
+      c.fill();
+    }
+
+    c.save();
+    defineMouseShellPath(c, hw, hh);
+    c.clip();
+
+    const bodyGrad = c.createLinearGradient(-hw, -hh, hw, hh);
+    bodyGrad.addColorStop(0, '#FFFFFF');
+    bodyGrad.addColorStop(0.6, '#F8FAFC');
+    bodyGrad.addColorStop(1, '#E2E7F0');
+    c.fillStyle = bodyGrad;
+    c.fillRect(-hw - 4, -hh - 4, hw * 2 + 8, hh * 2 + 8);
+
+    // LEFT BUTTON HIGHLIGHT (Bottom-Left Half)
+    if (inputState.leftGlow > 0.02) {
+      c.save();
+      c.beginPath();
+      c.rect(-hw - 4, splitY, hw + 4, hh - splitY + 4);
+      c.clip();
+      const lg = c.createLinearGradient(-hw, splitY, 0, hh);
+      lg.addColorStop(0, `rgba(255, 158, 112, ${inputState.leftGlow.toFixed(3)})`);
+      lg.addColorStop(0.55, `rgba(255, 112, 66, ${inputState.leftGlow.toFixed(3)})`);
+      lg.addColorStop(1, `rgba(235, 74, 38, ${inputState.leftGlow.toFixed(3)})`);
+      c.fillStyle = lg;
+      c.fillRect(-hw - 4, splitY, hw + 4, hh - splitY + 4);
+      c.restore();
+    }
+
+    // RIGHT BUTTON HIGHLIGHT (Bottom-Right Half)
+    if (inputState.rightGlow > 0.02) {
+      c.save();
+      c.beginPath();
+      c.rect(0, splitY, hw + 4, hh - splitY + 4);
+      c.clip();
+      const rg = c.createLinearGradient(0, splitY, hw, hh);
+      rg.addColorStop(0, `rgba(125, 224, 255, ${inputState.rightGlow.toFixed(3)})`);
+      rg.addColorStop(0.55, `rgba(56, 189, 248, ${inputState.rightGlow.toFixed(3)})`);
+      rg.addColorStop(1, `rgba(14, 146, 224, ${inputState.rightGlow.toFixed(3)})`);
+      c.fillStyle = rg;
+      c.fillRect(0, splitY, hw + 4, hh - splitY + 4);
+      c.restore();
+    }
+
+    // Crisp seam splitting Upper Palm Rest vs L / R Buttons
+    c.strokeStyle = 'rgba(72, 82, 98, 0.5)';
+    c.lineWidth = 1.6;
+    c.beginPath();
+    c.moveTo(-hw, splitY);
+    c.quadraticCurveTo(0, splitY - 2.5, hw, splitY);
+    c.moveTo(0, splitY - 1);
+    c.lineTo(0, hh);
+    c.stroke();
+
+    c.font = '800 9.5px -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif';
+    c.textAlign = 'center';
+    c.textBaseline = 'middle';
+    c.fillStyle = inputState.leftGlow > 0.35 ? '#FFFFFF' : 'rgba(72, 65, 62, 0.5)';
+    c.fillText('L', -hw * 0.54, hh * 0.48);
+
+    c.fillStyle = inputState.rightGlow > 0.35 ? '#FFFFFF' : 'rgba(72, 65, 62, 0.5)';
+    c.fillText('R', hw * 0.54, hh * 0.48);
+
+    c.restore();
+
+    defineMouseShellPath(c, hw, hh);
+    c.strokeStyle = dt.mouseStroke;
+    c.lineWidth = 2.4;
+    c.stroke();
+
+    // Glowing button border rim when Left or Right is pressed
+    if (inputState.leftGlow > 0.1) {
+      c.save();
+      c.beginPath();
+      c.rect(-hw - 5, splitY, hw + 5, hh - splitY + 5);
+      c.clip();
+      defineMouseShellPath(c, hw, hh);
+      c.strokeStyle = `rgba(255, 108, 60, ${inputState.leftGlow.toFixed(3)})`;
+      c.lineWidth = 3.4;
+      c.stroke();
+      c.restore();
+    }
+    if (inputState.rightGlow > 0.1) {
+      c.save();
+      c.beginPath();
+      c.rect(0, splitY, hw + 5, hh - splitY + 5);
+      c.clip();
+      defineMouseShellPath(c, hw, hh);
+      c.strokeStyle = `rgba(42, 184, 248, ${inputState.rightGlow.toFixed(3)})`;
+      c.lineWidth = 3.4;
+      c.stroke();
+      c.restore();
+    }
+
+    // Center Scroll Wheel
+    const wheelW = 9;
+    const wheelH = 18;
+    const wheelX = -wheelW * 0.5;
+    const wheelY = 8;
+
+    roundRectPath(c, wheelX - 1.5, wheelY - 1.5, wheelW + 3, wheelH + 3, 4.5);
+    c.fillStyle = '#D2D7E0';
+    c.fill();
+
+    roundRectPath(c, wheelX, wheelY, wheelW, wheelH, 4);
+    c.fillStyle = inputState.middleGlow > 0.15 ? '#A78BFA' : '#586172';
+    c.fill();
+    c.strokeStyle = dt.mouseStroke;
+    c.lineWidth = 1.3;
+    c.stroke();
+
+    c.save();
+    roundRectPath(c, wheelX + 1, wheelY + 1.5, wheelW - 2, wheelH - 3, 2.5);
+    c.clip();
+    c.strokeStyle = 'rgba(255, 255, 255, 0.58)';
+    c.lineWidth = 1.2;
+    const step = 4;
+    const shift = ((inputState.wheelOffset % step) + step) % step;
+    for (let y = wheelY - step + shift; y < wheelY + wheelH + step; y += step) {
+      c.beginPath();
+      c.moveTo(wheelX + 1.5, y);
+      c.lineTo(wheelX + wheelW - 1.5, y);
       c.stroke();
     }
     c.restore();
-  }
-
-  function drawPuppyCharacter(c, dog, cx, groundY, scale, isExport = false) {
-    const st = dog.state;
-    const breath = motionEnabled && !isExport ? Math.sin(st.breathPhase) * 3.2 : 0;
-    const squashX = 1 + st.bounce * 0.04;
-    const squashY = 1 - st.bounce * 0.04;
-
-    c.save();
-    c.translate(cx, groundY);
-    c.scale(scale * squashX, scale * squashY);
-
-    if (!isExport) {
-      drawGroundShadowForDog(c, dog.id);
-    } else {
-      // Subtle soft contact shadow even in transparent export so paws feel grounded
-      c.fillStyle = 'rgba(0, 0, 0, 0.12)';
-      c.beginPath();
-      c.ellipse(0, -2, 92, 16, 0, 0, Math.PI * 2);
-      c.fill();
-    }
-
-    if (dog.id === 'sunny') {
-      drawSunnyCharacter(c, st, breath);
-    } else if (dog.id === 'daisy') {
-      drawDaisyCharacter(c, st, breath);
-    } else {
-      drawKuroCharacter(c, st, breath);
-    }
 
     c.restore();
   }
 
+  // =========================================================================
+  // Character-Matched Plush Arms & Paws Reaching onto Keyboard & Mouse!
+  // =========================================================================
+  function drawCharacterArmAndPaw(c, dogId, { sx, sy, px, py, side, press, lift }) {
+    const dx = px - sx;
+    const dy = py - sy;
+    const len = Math.max(1, Math.hypot(dx, dy));
+    const bend = side * Math.min(20, len * 0.2);
+    const cx = (sx + px) * 0.5 + bend;
+    const cy = (sy + py) * 0.5 + 6;
+
+    const endDx = px - cx;
+    const endDy = py - cy;
+    const angle = Math.atan2(endDy, endDx);
+    const squashX = 1 + press * 0.1 - lift * 0.04;
+    const squashY = 1 - press * 0.08 + lift * 0.07;
+
+    const outline = dogId === 'sunny' ? '#181411' : dogId === 'daisy' ? '#7A5134' : '#0B0C0E';
+    const outlineW = dogId === 'sunny' ? 3.5 : dogId === 'daisy' ? 2.7 : 3.0;
+
+    c.save();
+
+    // Soft contact shadow on keyboard / mouse
+    c.fillStyle = 'rgba(0, 0, 0, 0.16)';
+    c.beginPath();
+    c.ellipse(px, py + 5 + lift * 8, 17 * (1 - lift * 0.2), 10.5 * (1 - lift * 0.2), 0, 0, Math.PI * 2);
+    c.fill();
+
+    const sAngle = Math.atan2(cy - sy, cx - sx);
+    const snx = -Math.sin(sAngle);
+    const sny = Math.cos(sAngle);
+    const enx = -Math.sin(angle);
+    const eny = Math.cos(angle);
+    const mnx = (snx + enx) * 0.5;
+    const mny = (sny + eny) * 0.5;
+    const mLen = Math.hypot(mnx, mny) || 1;
+    const mnux = mnx / mLen;
+    const mnuy = mny / mLen;
+
+    const rShoulder = 19.5;
+    const rMid = 17.0;
+    const rWrist = 15.0;
+
+    const sLx = sx + snx * rShoulder, sLy = sy + sny * rShoulder;
+    const sRx = sx - snx * rShoulder, sRy = sy - sny * rShoulder;
+    const mLx = cx + mnux * rMid,     mLy = cy + mnuy * rMid;
+    const mRx = cx - mnux * rMid,     mRy = cy - mnuy * rMid;
+    const wLx = px + enx * rWrist,    wLy = py + eny * rWrist;
+    const wRx = px - enx * rWrist,    wRy = py - eny * rWrist;
+
+    // 1. Unified outer contour pass
+    c.save();
+    c.translate(px, py);
+    c.rotate(angle - Math.PI * 0.5);
+    c.scale(squashX, squashY);
+    c.beginPath();
+    c.ellipse(0, 3, 20.0, 17.6, 0, 0, Math.PI * 2);
+    c.fillStyle = outline;
+    c.fill();
+    c.restore();
+
+    c.strokeStyle = outline;
+    c.lineWidth = outlineW * 2;
+    c.lineCap = 'round';
+    c.beginPath();
+    c.moveTo(sLx, sLy);
+    c.quadraticCurveTo(mLx, mLy, wLx, wLy);
+    c.moveTo(sRx, sRy);
+    c.quadraticCurveTo(mRx, mRy, wRx, wRy);
+    c.stroke();
+
+    // 2. Character-specific plush arm fill
+    const armPath = () => {
+      c.beginPath();
+      c.moveTo(sLx, sLy);
+      c.quadraticCurveTo(mLx, mLy, wLx, wLy);
+      c.lineTo(wRx, wRy);
+      c.quadraticCurveTo(mRx, mRy, sRx, sRy);
+      c.closePath();
+    };
+
+    const ag = c.createLinearGradient(sx, sy, px, py);
+    if (dogId === 'sunny') {
+      ag.addColorStop(0, '#F7DC80');
+      ag.addColorStop(1, '#FCE698');
+    } else if (dogId === 'daisy') {
+      ag.addColorStop(0, '#ED9A48');
+      ag.addColorStop(0.68, '#F7BF72');
+      ag.addColorStop(1, '#FFFDF8');
+    } else {
+      // Kuro tri-color Black -> Warm Tan stocking arm!
+      ag.addColorStop(0, '#191B20');
+      ag.addColorStop(0.52, '#191B20');
+      ag.addColorStop(0.58, '#E8A86E');
+      ag.addColorStop(1, '#EAB07A');
+    }
+    armPath();
+    c.fillStyle = ag;
+    c.fill();
+
+    // Seamless shoulder blend into torso
+    c.fillStyle = dogId === 'sunny' ? '#F7DC80' : dogId === 'daisy' ? '#ED9A48' : '#191B20';
+    c.beginPath();
+    c.ellipse(sx - side * 4, sy - 2, 18, 15, side * 0.3, 0, Math.PI * 2);
+    c.fill();
+
+    // 3. Plump Puppy Paw + Toe Creases + Paw Beans when lifted!
+    c.save();
+    c.translate(px, py);
+    c.rotate(angle - Math.PI * 0.5);
+    c.scale(squashX, squashY);
+
+    c.beginPath();
+    c.ellipse(0, 3, 17.2, 14.8, 0, 0, Math.PI * 2);
+    if (dogId === 'sunny') {
+      const pg = c.createRadialGradient(-3, -2, 2, 0, 3, 17);
+      pg.addColorStop(0, '#FFF1B8');
+      pg.addColorStop(0.75, '#F9DF86');
+      pg.addColorStop(1, '#ECC564');
+      c.fillStyle = pg;
+    } else {
+      const pg = c.createRadialGradient(-3, -2, 2, 0, 3, 17);
+      pg.addColorStop(0, '#FFFFFF');
+      pg.addColorStop(0.75, '#FFFDF8');
+      pg.addColorStop(1, '#EFE4D6');
+      c.fillStyle = pg;
+    }
+    c.fill();
+
+    c.strokeStyle = outline;
+    c.lineWidth = 2.0;
+    c.lineCap = 'round';
+    c.beginPath();
+    c.moveTo(-5.2, 10);
+    c.lineTo(-5.6, 15.6);
+    c.moveTo(0, 10.6);
+    c.lineTo(0, 16.4);
+    c.moveTo(5.2, 10);
+    c.lineTo(5.6, 15.6);
+    c.stroke();
+
+    if (lift > 0.26) {
+      const ba = clamp((lift - 0.26) * 1.65, 0, 0.88);
+      c.fillStyle =
+        dogId === 'kuro'
+          ? `rgba(68, 52, 48, ${ba.toFixed(3)})`
+          : `rgba(255, 148, 164, ${ba.toFixed(3)})`;
+      c.beginPath();
+      c.ellipse(0, 6, 4.8, 3.4, 0, 0, Math.PI * 2);
+      c.fill();
+      c.beginPath();
+      c.arc(-5.8, 11.6, 2.1, 0, Math.PI * 2);
+      c.arc(0, 12.8, 2.3, 0, Math.PI * 2);
+      c.arc(5.8, 11.6, 2.1, 0, Math.PI * 2);
+      c.fill();
+    }
+
+    c.restore();
+    c.restore();
+  }
+
+  function drawPuppyWorkstation(c, placement, isExport = false) {
+    const { dog, cx, baseY, scale } = placement;
+    const st = dog.state;
+    const breath = isExport ? 0 : Math.sin(st.breathPhase) * 2.8;
+    const bodyX = DOG_X + st.leanX;
+
+    c.save();
+    c.translate(cx, baseY);
+    c.scale(scale, scale);
+
+    // 1. Soft Desk Ground Mat / Shadow
+    if (!isExport) {
+      c.fillStyle =
+        dog.id === 'daisy' && !isDarkTheme
+          ? 'rgba(116, 168, 234, 0.3)'
+          : isDarkTheme
+            ? 'rgba(0, 0, 0, 0.36)'
+            : 'rgba(92, 74, 56, 0.12)';
+      c.beginPath();
+      c.ellipse(0, 26, 204, 68, 0.015, 0, Math.PI * 2);
+      c.fill();
+    }
+
+    // 2. Squatting Puppy Body, Hind Legs, Tail & Head
+    if (dog.id === 'sunny') {
+      drawSunnyUpperBody(c, st, bodyX, breath);
+    } else if (dog.id === 'daisy') {
+      drawDaisyUpperBody(c, st, bodyX, breath);
+    } else {
+      drawKuroUpperBody(c, st, bodyX, breath);
+    }
+
+    // 3. Dedicated Mechanical Keyboard + Mouse Pad + Mouse in front of Puppy!
+    drawPuppyKeyboard(c, dog.id);
+    drawPuppyMouseAndPad(c, dog.id);
+
+    // 4. Left & Right Plush Puppy Paws operating the Mouse & Keyboard!
+    const lp = st.leftPaw;
+    const lpLiftPx = lp.lift * 15;
+    drawCharacterArmAndPaw(c, dog.id, {
+      sx: bodyX - 60,
+      sy: -68 + breath * 0.45,
+      px: lp.x,
+      py: lp.y - lpLiftPx,
+      side: -1,
+      press: lp.press,
+      lift: lp.lift,
+    });
+
+    const rp = st.rightPaw;
+    const rpLiftPx = rp.lift * 15;
+    if (rp.ghostAlpha > 0.03) {
+      c.save();
+      c.globalAlpha = rp.ghostAlpha * 0.4;
+      c.fillStyle = dog.id === 'sunny' ? '#FCE698' : '#FFFDF8';
+      c.beginPath();
+      c.ellipse(rp.prevX, rp.prevY - 6, 14, 12, 0, 0, Math.PI * 2);
+      c.fill();
+      c.restore();
+    }
+
+    drawCharacterArmAndPaw(c, dog.id, {
+      sx: bodyX + 58,
+      sy: -68 + breath * 0.45,
+      px: rp.x,
+      py: rp.y - rpLiftPx,
+      side: 1,
+      press: rp.press,
+      lift: rp.lift,
+    });
+
+    c.restore();
+  }
+
+  // =========================================================================
+  // Stage-Space Effects & Enlarged Floating Keycap Popups (Fade-Out!)
+  // =========================================================================
   function drawTrioCaptions(placements) {
     if (currentView !== 'all') return;
 
     ctx.save();
     for (const p of placements) {
-      const y = p.groundY + 42;
-      const pillW = 148;
-      const pillH = 30;
+      const y = p.baseY + 88;
+      const pillW = 136;
+      const pillH = 28;
 
-      roundRectPath(ctx, p.cx - pillW * 0.5, y - pillH * 0.5, pillW, pillH, 15);
-      ctx.fillStyle = isDarkTheme ? 'rgba(34, 42, 58, 0.78)' : 'rgba(255, 255, 255, 0.78)';
+      roundRectPath(ctx, p.cx - pillW * 0.5, y - pillH * 0.5, pillW, pillH, 14);
+      ctx.fillStyle = isDarkTheme ? 'rgba(34, 42, 58, 0.8)' : 'rgba(255, 255, 255, 0.8)';
       ctx.fill();
       ctx.strokeStyle = isDarkTheme ? 'rgba(255,255,255,0.12)' : 'rgba(130, 160, 200, 0.3)';
       ctx.lineWidth = 1.2;
       ctx.stroke();
 
-      ctx.font = '600 13.5px -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif';
+      ctx.font = '600 13px -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillStyle = isDarkTheme ? '#E6ECF5' : '#334155';
@@ -2241,37 +3296,156 @@
     ctx.restore();
   }
 
-  function drawEffects() {
-    for (const r of scene.ripples) {
+  function drawStageEffects() {
+    for (const r of inputState.ripples) {
       const t = r.life / r.maxLife;
-      const rad = 14 + easeOutCubic(t) * 52;
+      const radius = 6 + easeOutCubic(t) * r.maxRadius;
       ctx.save();
       ctx.strokeStyle = r.color;
-      ctx.globalAlpha = (1 - t) * 0.65;
-      ctx.lineWidth = 2.6 * (1 - t * 0.5);
+      ctx.globalAlpha = (1 - t) * 0.78;
+      ctx.lineWidth = 2.6 * (1 - t * 0.55);
       ctx.beginPath();
-      ctx.arc(r.x, r.y, rad, 0, Math.PI * 2);
+      ctx.arc(r.x, r.y, radius, 0, Math.PI * 2);
       ctx.stroke();
       ctx.restore();
     }
 
-    for (const h of scene.FloatingHearts) {
-      const t = h.life / h.maxLife;
-      const alpha = t < 0.2 ? t / 0.2 : 1 - easeOutCubic((t - 0.2) / 0.8);
-      const s = h.size * (0.7 + 0.35 * Math.sin(Math.min(1, t * 3) * Math.PI * 0.5));
+    for (const pt of inputState.particles) {
+      const t = pt.life / pt.maxLife;
+      const alpha = 1 - easeOutCubic(t);
+      const sz = pt.size * (1 - t * 0.45);
       ctx.save();
-      ctx.translate(h.x, h.y);
-      ctx.rotate(h.rot);
+      ctx.translate(pt.x, pt.y);
+      ctx.rotate(pt.rot);
       ctx.globalAlpha = alpha;
-      ctx.fillStyle = h.color;
+      ctx.fillStyle = pt.color;
       ctx.beginPath();
-      ctx.moveTo(0, s * 0.3);
-      ctx.bezierCurveTo(-s * 0.15, -s * 0.4, -s * 1.1, -s * 0.2, -s * 0.85, s * 0.36);
-      ctx.bezierCurveTo(-s * 0.68, s * 0.8, -s * 0.12, s * 1.0, 0, s * 1.15);
-      ctx.bezierCurveTo(s * 0.12, s * 1.0, s * 0.68, s * 0.8, s * 0.85, s * 0.36);
-      ctx.bezierCurveTo(s * 1.1, -s * 0.2, s * 0.15, -s * 0.4, 0, s * 0.3);
+      for (let i = 0; i < 8; i++) {
+        const rad = i % 2 === 0 ? sz : sz * 0.42;
+        const a = (i * Math.PI) / 4;
+        if (i === 0) ctx.moveTo(Math.cos(a) * rad, Math.sin(a) * rad);
+        else ctx.lineTo(Math.cos(a) * rad, Math.sin(a) * rad);
+      }
       ctx.closePath();
       ctx.fill();
+      ctx.restore();
+    }
+
+    for (const b of inputState.mouseBadges) {
+      const t = b.life / b.maxLife;
+      const pop = t < 0.2 ? easeOutBack(t / 0.2) : 1;
+      const fade = t > 0.42 ? 1 - easeOutCubic((t - 0.42) / 0.58) : 1;
+      const drift = easeOutCubic(t) * 16;
+
+      ctx.save();
+      ctx.translate(b.x, b.y + drift);
+      ctx.scale(pop, pop);
+      ctx.globalAlpha = fade;
+
+      const bw = 48;
+      const bh = 22;
+      roundRectPath(ctx, -bw * 0.5, -bh * 0.5, bw, bh, 11);
+      ctx.fillStyle = b.color;
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.92)';
+      ctx.lineWidth = 1.6;
+      ctx.stroke();
+
+      ctx.font = '700 11.5px -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillText(b.text, 0, 0.5);
+      ctx.restore();
+    }
+  }
+
+  function drawEnlargedKeyPopups() {
+    for (const p of inputState.popups) {
+      const enterT = clamp(p.age / 0.16, 0, 1);
+      const enterScale = 0.36 + easeOutBack(enterT) * 0.64;
+      const fadeT = easeOutCubic(p.fadeProgress);
+
+      // Smooth gradient fade-out opacity (1 -> 0) + upward float!
+      const alpha = clamp(enterT * 2.6, 0, 1) * (1 - fadeT);
+      if (alpha <= 0.005) continue;
+
+      const floatUp = fadeT * 46;
+      const scale = enterScale * (1 + p.pulse * 0.08 + fadeT * 0.06);
+
+      if (p.age < 0.24) {
+        const trailAlpha = (1 - p.age / 0.24) * 0.32;
+        ctx.save();
+        const tg = ctx.createLinearGradient(p.startX, p.startY, p.x, p.y - floatUp);
+        tg.addColorStop(0, 'rgba(255, 186, 82, 0)');
+        tg.addColorStop(1, 'rgba(255, 186, 82, 0.85)');
+        ctx.strokeStyle = tg;
+        ctx.globalAlpha = trailAlpha;
+        ctx.lineWidth = 6 * (1 - p.age / 0.24);
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(p.startX, p.startY);
+        ctx.lineTo(p.x, p.y - floatUp);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      const hw = p.w * 0.5;
+      const hh = p.h * 0.5;
+
+      ctx.save();
+      ctx.translate(p.x, p.y - floatUp);
+      ctx.scale(scale, scale);
+      ctx.globalAlpha = alpha;
+
+      // Soft radial glow halo behind enlarged 3D keycap
+      const glowR = Math.max(p.w, p.h) * 0.82;
+      const halo = ctx.createRadialGradient(0, 0, 8, 0, 0, glowR);
+      halo.addColorStop(0, p.isAccent ? 'rgba(255, 166, 54, 0.46)' : 'rgba(255, 224, 158, 0.42)');
+      halo.addColorStop(1, 'rgba(255, 196, 98, 0)');
+      ctx.fillStyle = halo;
+      ctx.beginPath();
+      ctx.arc(0, 0, glowR, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Drop shadow
+      ctx.fillStyle = isDarkTheme ? 'rgba(0, 0, 0, 0.36)' : 'rgba(68, 96, 138, 0.24)';
+      roundRectPath(ctx, -hw + 2, -hh + 10, p.w, p.h, 16);
+      ctx.fill();
+
+      // 3D Keycap base skirt
+      roundRectPath(ctx, -hw, -hh + 5, p.w, p.h, 15);
+      ctx.fillStyle = p.isAccent ? '#D67D15' : '#CFD6E0';
+      ctx.fill();
+      ctx.strokeStyle = p.isAccent ? '#995308' : '#7F8A9C';
+      ctx.lineWidth = 2.2;
+      ctx.stroke();
+
+      // 3D Keycap top face
+      const topH = p.h - 9;
+      roundRectPath(ctx, -hw + 1.5, -hh, p.w - 3, topH, 13.5);
+      const topGrad = ctx.createLinearGradient(0, -hh, 0, -hh + topH);
+      if (p.isAccent) {
+        topGrad.addColorStop(0, '#FFC566');
+        topGrad.addColorStop(1, '#F59622');
+      } else {
+        topGrad.addColorStop(0, '#FFFFFF');
+        topGrad.addColorStop(1, '#F4F6FA');
+      }
+      ctx.fillStyle = topGrad;
+      ctx.fill();
+
+      ctx.strokeStyle = p.isAccent ? 'rgba(255, 236, 198, 0.72)' : 'rgba(255, 255, 255, 0.94)';
+      ctx.lineWidth = 1.6;
+      ctx.stroke();
+
+      const fontSize = p.main.length >= 5 ? 20 : p.main.length >= 3 ? 24 : 33;
+      ctx.font = `800 ${fontSize}px -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = p.isAccent ? '#FFFFFF' : '#2C2623';
+      ctx.fillText(p.main, 0, -hh + topH * 0.52);
+
       ctx.restore();
     }
   }
@@ -2293,11 +3467,12 @@
 
     const placements = getActivePlacements();
     for (const p of placements) {
-      drawPuppyCharacter(ctx, p.dog, p.cx, p.groundY, p.scale, false);
+      drawPuppyWorkstation(ctx, p, false);
     }
 
     drawTrioCaptions(placements);
-    drawEffects();
+    drawStageEffects();
+    drawEnlargedKeyPopups();
 
     ctx.restore();
   }

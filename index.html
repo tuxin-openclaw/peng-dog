@@ -3,11 +3,11 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
-  <title>小狗蹲坐形象集 · Canvas 矢量手绘</title>
+  <title>小狗键鼠桌宠 · Canvas 互动展示</title>
   <style>
     :root {
       --bg-page: #f4f7fc;
-      --hud-bg: rgba(255, 255, 255, 0.82);
+      --hud-bg: rgba(255, 255, 255, 0.84);
       --hud-border: rgba(140, 168, 204, 0.28);
       --hud-shadow: 0 10px 30px rgba(48, 76, 118, 0.1);
       --text-main: #2c3545;
@@ -15,20 +15,18 @@
       --tab-active-bg: #3b82f6;
       --tab-active-text: #ffffff;
       --tab-hover-bg: rgba(59, 130, 246, 0.1);
-      --btn-bg: rgba(255, 255, 255, 0.9);
     }
 
     body.theme-dark {
       --bg-page: #151922;
-      --hud-bg: rgba(28, 34, 46, 0.84);
+      --hud-bg: rgba(28, 34, 46, 0.86);
       --hud-border: rgba(255, 255, 255, 0.12);
-      --hud-shadow: 0 12px 32px rgba(0, 0, 0, 0.36);
+      --hud-shadow: 0 12px 32px rgba(0, 0, 0, 0.38);
       --text-main: #eef2f8;
       --text-muted: #9aa6ba;
       --tab-active-bg: #60a5fa;
       --tab-active-text: #101826;
       --tab-hover-bg: rgba(96, 165, 250, 0.15);
-      --btn-bg: rgba(38, 46, 62, 0.92);
     }
 
     * {
@@ -52,12 +50,12 @@
       display: block;
       width: 100vw;
       height: 100vh;
-      cursor: pointer;
+      cursor: default;
     }
 
     .hud-top {
       position: fixed;
-      top: 16px;
+      top: 14px;
       left: 50%;
       transform: translateX(-50%);
       z-index: 10;
@@ -121,7 +119,7 @@
 
     .hud-bottom {
       position: fixed;
-      bottom: 16px;
+      bottom: 14px;
       left: 50%;
       transform: translateX(-50%);
       z-index: 10;
@@ -139,6 +137,7 @@
       color: var(--text-muted);
       white-space: nowrap;
       max-width: calc(100vw - 24px);
+      pointer-events: none;
     }
 
     .hud-bottom strong {
@@ -182,8 +181,8 @@
     </nav>
 
     <div class="hud-actions">
-      <button type="button" class="hud-btn" id="motionToggle" aria-pressed="true" title="切换微动动画或静态定格">
-        <span id="motionIcon">✨</span><span id="motionLabel">微动开</span>
+      <button type="button" class="hud-btn" id="soundToggle" aria-pressed="false" title="开启或关闭敲键/点击音效">
+        <span id="soundIcon">🔇</span><span id="soundLabel">音效关</span>
       </button>
       <button type="button" class="hud-btn" id="themeToggle" aria-pressed="false" title="切换浅色/深色背景">
         <span id="themeIcon">☀️</span><span id="themeLabel">浅色</span>
@@ -197,9 +196,9 @@
   <canvas id="petCanvas"></canvas>
 
   <footer class="hud-bottom">
-    <span id="statusHint">统一图2正面蹲坐姿势 · 点击任意小狗可摸摸头互动</span>
+    <span id="statusHint">敲击任意键盘按键、移动鼠标或点击左右键试试 🐾</span>
     <span class="divider"></span>
-    <span>摸摸次数 <strong id="petCount">0</strong></span>
+    <span>互动计数 <strong id="actionCount">0</strong></span>
   </footer>
 
   <script src="./app.js"></script>
