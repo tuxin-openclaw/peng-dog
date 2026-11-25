@@ -412,6 +412,7 @@
       lookY: 0,
       targetLookX: 0,
       targetLookY: 0,
+      keyGlanceUntil: -1,
       // Left paw: defaults to 'squat'. Reaches out onto left-hand keyboard keys!
       leftPaw: {
         x: LEFT_SQUAT_HOME_X,
@@ -480,6 +481,9 @@
 
     mouseNormX: 0.5,
     mouseNormY: 0.5,
+    pointerStageX: STAGE_W * 0.5,
+    pointerStageY: STAGE_H * 0.4,
+    pointerInWindow: false,
     mouseLX: INIT_MOUSE_LX,
     mouseLY: INIT_MOUSE_LY,
     mouseTargetLX: INIT_MOUSE_LX,
@@ -836,8 +840,9 @@
     }
 
     st.targetLeanX = clamp((keyObj.ux - DOG_X) * 0.14, -18, 18);
-    st.targetLookX = clamp((keyObj.ux - DOG_X) / 175, -0.8, 0.85);
-    st.targetLookY = 0.52;
+    st.targetLookX = clamp((keyObj.ux - DOG_X) / 150, -0.85, 0.9);
+    st.targetLookY = 0.62;
+    st.keyGlanceUntil = inputState.time + 0.32;
     st.bounce = 0.9;
     st.excitement = Math.min(1, st.excitement + 0.25);
     if (dogObj.id === 'sunny' && st.glintProgress === 0 && Math.random() < 0.35) {
@@ -939,7 +944,14 @@
     }
   });
 
+  function updatePointerStagePos(clientX, clientY) {
+    inputState.pointerStageX = (clientX - viewport.offsetX) / viewport.scale;
+    inputState.pointerStageY = (clientY - viewport.offsetY) / viewport.scale;
+    inputState.pointerInWindow = true;
+  }
+
   function activateMouseReach(clientX, clientY, holdSeconds = 0.65) {
+    updatePointerStagePos(clientX, clientY);
     const nx = clamp(clientX / Math.max(1, window.innerWidth), 0, 1);
     const ny = clamp(clientY / Math.max(1, window.innerHeight), 0, 1);
 
@@ -954,8 +966,6 @@
       st.rightPaw.mode = 'mouse';
       st.rightPaw.isExtended = true;
       st.rightPaw.activeKeyCode = null;
-      st.targetLookX = 0.3 + (nx - 0.5) * 0.9;
-      st.targetLookY = 0.38 + (ny - 0.5) * 0.42;
       st.targetLeanX = 14 + (nx - 0.5) * 8;
     }
   }
@@ -968,9 +978,14 @@
   }
 
   window.addEventListener('mousemove', (e) => {
+    updatePointerStagePos(e.clientX, e.clientY);
+    syncMouseButtonsBitmask(e.buttons);
     if (e.target && e.target.closest && e.target.closest('.hud-top')) return;
     activateMouseReach(e.clientX, e.clientY, 0.62);
-    syncMouseButtonsBitmask(e.buttons);
+  });
+
+  document.addEventListener('mouseleave', () => {
+    inputState.pointerInWindow = false;
   });
 
   window.addEventListener('mousedown', (e) => {
@@ -1125,6 +1140,9 @@
       else k.glow = Math.max(0, k.glow - dt * 3.4);
     }
 
+    const activePlacements = getActivePlacements();
+    const placementById = new Map(activePlacements.map((p) => [p.dog.id, p]));
+
     const pawFollow = 1 - Math.exp(-dt * 24);
     for (const dogObj of Object.values(dogs)) {
       const st = dogObj.state;
@@ -1135,13 +1153,21 @@
       st.leanX = lerp(st.leanX, st.targetLeanX, 1 - Math.exp(-dt * 9));
       st.targetLeanX *= Math.exp(-dt * 2.0);
 
-      // Gently return gaze forward when idle
-      if (!mouseWanted && inputState.activeCodes.size === 0) {
-        st.targetLookX *= Math.exp(-dt * 2.2);
-        st.targetLookY *= Math.exp(-dt * 2.2);
+      // Continuous per-puppy head & eye gaze tracking toward cursor!
+      const placement = placementById.get(dogObj.id);
+      if (inputState.time >= st.keyGlanceUntil) {
+        if (inputState.pointerInWindow && placement) {
+          const headStageX = placement.cx + (DOG_X + st.leanX) * placement.scale;
+          const headStageY = placement.baseY - 204 * placement.scale;
+          st.targetLookX = clamp((inputState.pointerStageX - headStageX) / 290, -1, 1);
+          st.targetLookY = clamp((inputState.pointerStageY - headStageY) / 220, -1, 1);
+        } else {
+          st.targetLookX = 0;
+          st.targetLookY = 0;
+        }
       }
-      st.lookX = lerp(st.lookX, st.targetLookX, 1 - Math.exp(-dt * 10));
-      st.lookY = lerp(st.lookY, st.targetLookY, 1 - Math.exp(-dt * 10));
+      st.lookX = lerp(st.lookX, st.targetLookX, 1 - Math.exp(-dt * 12));
+      st.lookY = lerp(st.lookY, st.targetLookY, 1 - Math.exp(-dt * 12));
       st.leftEarKick *= Math.exp(-dt * 13);
       st.rightEarKick *= Math.exp(-dt * 13);
       st.bounce *= Math.exp(-dt * 15);
@@ -1839,23 +1865,24 @@
 
     drawSunnyCollar(c, bodyX, breath);
 
-    // Head
-    const headX = bodyX + st.lookX * 4;
-    const headY = -204 + breath * 0.85 + st.bounce * 4.5;
-    const headTilt = st.baseTilt + st.leanX * 0.002 + st.lookX * 0.04;
+    // Head with 2.5D cursor turn & parallax
+    const headX = bodyX + st.lookX * 11;
+    const headY = -204 + breath * 0.85 + st.lookY * 6.5 + st.bounce * 4.5;
+    const headTilt = st.baseTilt + st.leanX * 0.002 + st.lookX * 0.11;
 
     c.save();
     c.translate(headX, headY);
     c.rotate(headTilt);
 
+    const crownShiftX = -st.lookX * 3.5;
     const defineCrownFluff = () => {
       c.beginPath();
-      c.moveTo(-46, -72);
-      c.lineTo(-44, -84);
-      c.quadraticCurveTo(-33, -101, -18, -90);
-      c.quadraticCurveTo(-6, -105, 10, -91);
-      c.quadraticCurveTo(26, -101, 40, -84);
-      c.lineTo(42, -72);
+      c.moveTo(-46 + crownShiftX, -72);
+      c.lineTo(-44 + crownShiftX, -84);
+      c.quadraticCurveTo(-33 + crownShiftX, -101, -18 + crownShiftX, -90);
+      c.quadraticCurveTo(-6 + crownShiftX, -105, 10 + crownShiftX, -91);
+      c.quadraticCurveTo(26 + crownShiftX, -101, 40 + crownShiftX, -84);
+      c.lineTo(42 + crownShiftX, -72);
       c.closePath();
     };
 
@@ -1872,7 +1899,7 @@
     c.stroke();
 
     definePlumpPuppyHeadPath(c);
-    const hg = c.createRadialGradient(-18, -42, 16, 0, 6, 128);
+    const hg = c.createRadialGradient(-18 + st.lookX * 10, -42 + st.lookY * 8, 16, 0, 6, 128);
     hg.addColorStop(0, '#FDF0B4');
     hg.addColorStop(0.55, '#F9DF85');
     hg.addColorStop(1, '#ECC666');
@@ -1883,11 +1910,15 @@
     c.fillStyle = '#FBE69A';
     c.fill();
 
+    // Floppy ears shift slightly opposite to face turn for natural 3D head depth!
+    c.save();
+    c.translate(-st.lookX * 5.5, -st.lookY * 3.2);
     drawSunnyFloppyEar(c, -1, st.leftEarKick);
     drawSunnyFloppyEar(c, 1, st.rightEarKick);
+    c.restore();
 
-    const fx = st.lookX * 5;
-    const fy = st.lookY * 3.5;
+    const fx = st.lookX * 13.5;
+    const fy = st.lookY * 9.0;
     c.save();
     c.translate(fx, fy);
 
@@ -1910,16 +1941,18 @@
       }
     }
 
+    // Sunglasses sit slightly ahead of face plane in 2.5D + dynamic specular glint!
     c.save();
+    c.translate(st.lookX * 3.0, st.lookY * 1.8);
     const sgY = -12 - st.bounce * 1.5;
     c.strokeStyle = '#141518';
     c.lineWidth = 6.0;
     c.lineCap = 'round';
     c.beginPath();
-    c.moveTo(-79, sgY - 5);
-    c.lineTo(-56, sgY - 2);
-    c.moveTo(56, sgY - 2);
-    c.lineTo(79, sgY - 5);
+    c.moveTo(-76 - st.lookX * 19, sgY - 5 - st.lookY * 3);
+    c.lineTo(-54, sgY - 2);
+    c.moveTo(54, sgY - 2);
+    c.lineTo(76 - st.lookX * 19, sgY - 5 - st.lookY * 3);
     c.moveTo(-16, sgY - 3);
     c.quadraticCurveTo(0, sgY - 7, 16, sgY - 3);
     c.stroke();
@@ -1948,15 +1981,16 @@
 
       c.save();
       c.clip();
-      const glintShift = st.glintProgress > 0 ? (st.glintProgress - 0.3) * 56 : 0;
-      c.strokeStyle = 'rgba(255, 255, 255, 0.36)';
+      const glintShift =
+        (st.glintProgress > 0 ? (st.glintProgress - 0.3) * 56 : 0) + st.lookX * 8;
+      c.strokeStyle = 'rgba(255, 255, 255, 0.38)';
       c.lineWidth = 4.5;
       c.beginPath();
       c.moveTo(-18 + glintShift, 14);
       c.lineTo(-4 + glintShift, -12);
       c.stroke();
 
-      c.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+      c.strokeStyle = 'rgba(255, 255, 255, 0.22)';
       c.lineWidth = 2;
       c.beginPath();
       c.moveTo(-8 + glintShift, 14);
@@ -2320,27 +2354,35 @@
 
     drawDaisyBandana(c, st, bodyX, breath);
 
-    const headX = bodyX + st.lookX * 4;
-    const headY = -204 + breath * 0.85 + st.bounce * 4.5;
-    const headTilt = st.baseTilt + st.leanX * 0.002 + st.lookX * 0.04;
+    const headX = bodyX + st.lookX * 11;
+    const headY = -204 + breath * 0.85 + st.lookY * 6.5 + st.bounce * 4.5;
+    const headTilt = st.baseTilt + st.leanX * 0.002 + st.lookX * 0.11;
 
     c.save();
     c.translate(headX, headY);
     c.rotate(headTilt);
 
+    // Ears counter-shift slightly in 2.5D depth
+    c.save();
+    c.translate(-st.lookX * 5.5, -st.lookY * 3.2);
     drawDaisyEar(c, -1, st.leftEarKick, 'stroke');
     drawDaisyEar(c, 1, st.rightEarKick, 'stroke');
+    c.restore();
+
     definePlumpPuppyHeadPath(c);
     c.strokeStyle = outline;
     c.lineWidth = lineW * 2;
     c.lineJoin = 'round';
     c.stroke();
 
+    c.save();
+    c.translate(-st.lookX * 5.5, -st.lookY * 3.2);
     drawDaisyEar(c, -1, st.leftEarKick, 'fill');
     drawDaisyEar(c, 1, st.rightEarKick, 'fill');
+    c.restore();
 
     definePlumpPuppyHeadPath(c);
-    const hg = c.createRadialGradient(-16, -48, 16, 0, 4, 130);
+    const hg = c.createRadialGradient(-16 + st.lookX * 10, -48 + st.lookY * 8, 16, 0, 4, 130);
     hg.addColorStop(0, '#F9C478');
     hg.addColorStop(0.55, '#EE9C4B');
     hg.addColorStop(1, '#DF8636');
@@ -2351,16 +2393,18 @@
     definePlumpPuppyHeadPath(c);
     c.clip();
 
+    const mx = st.lookX * 8.5;
+    const my = st.lookY * 5.5;
     c.beginPath();
-    c.moveTo(0, -10);
-    c.bezierCurveTo(20, -34, 72, -30, 118, 14);
-    c.lineTo(120, 96);
-    c.lineTo(-120, 96);
-    c.lineTo(-118, 14);
-    c.bezierCurveTo(-72, -30, -20, -34, 0, -10);
+    c.moveTo(mx, -10 + my);
+    c.bezierCurveTo(20 + mx, -34 + my, 72 + mx, -30 + my, 124, 14 + my * 0.5);
+    c.lineTo(126, 102);
+    c.lineTo(-126, 102);
+    c.lineTo(-124, 14 + my * 0.5);
+    c.bezierCurveTo(-72 + mx, -30 + my, -20 + mx, -34 + my, mx, -10 + my);
     c.closePath();
 
-    const fg = c.createLinearGradient(0, -30, 0, 86);
+    const fg = c.createLinearGradient(0, -30 + my, 0, 86);
     fg.addColorStop(0, '#FFFFFF');
     fg.addColorStop(0.82, '#FFFDF9');
     fg.addColorStop(1, '#F6EEE3');
@@ -2369,27 +2413,27 @@
 
     c.fillStyle = 'rgba(255, 253, 248, 0.92)';
     c.beginPath();
-    c.ellipse(-34, -40, 12, 7.5, -0.22, 0, Math.PI * 2);
+    c.ellipse(-34 + mx * 1.15, -40 + my * 1.15, 12, 7.5, -0.22, 0, Math.PI * 2);
     c.fill();
     c.beginPath();
-    c.ellipse(34, -40, 12, 7.5, 0.22, 0, Math.PI * 2);
+    c.ellipse(34 + mx * 1.15, -40 + my * 1.15, 12, 7.5, 0.22, 0, Math.PI * 2);
     c.fill();
 
     c.strokeStyle = 'rgba(255, 238, 198, 0.55)';
     c.lineWidth = 4.5;
     c.lineCap = 'round';
     c.beginPath();
-    c.arc(0, -10, 74, -Math.PI * 0.66, -Math.PI * 0.34);
+    c.arc(mx * 0.5, -10 + my * 0.5, 74, -Math.PI * 0.66, -Math.PI * 0.34);
     c.stroke();
     c.restore();
 
-    const fx = st.lookX * 4.5;
-    const fy = st.lookY * 3.0;
+    const fx = st.lookX * 13.5;
+    const fy = st.lookY * 9.0;
     c.save();
     c.translate(fx, fy);
 
     for (const side of [-1, 1]) {
-      const bx = side * 66;
+      const bx = side * 64;
       const by = 18;
       const bg = c.createRadialGradient(bx, by, 2, bx, by, 26);
       bg.addColorStop(0, 'rgba(249, 152, 172, 0.72)');
@@ -2412,7 +2456,8 @@
 
     for (const side of [-1, 1]) {
       c.save();
-      c.translate(side * 42, -8 - st.bounce * 1.5);
+      c.translate(side * 42 + st.lookX * 2.5, -8 + st.lookY * 1.8 - st.bounce * 1.5);
+      c.rotate(st.lookX * 0.06);
       c.strokeStyle = '#322018';
       c.lineWidth = 4.8;
       c.lineCap = 'round';
@@ -2657,36 +2702,46 @@
     const sy = Math.max(0.15, 1 - blinkAmount * 0.9);
     c.scale(1, sy);
 
-    const gx = lookX * 2.8;
-    const gy = lookY * 2.0;
-
+    // Fixed white sclera socket so the dark iris visibly rolls toward the cursor!
     c.fillStyle = '#FFFFFF';
     c.beginPath();
-    c.ellipse(gx + side * 1.8, gy + 1.5, 15.8, 16.8, 0, 0, Math.PI * 2);
+    c.ellipse(side * 1.4, 1.0, 16.4, 17.4, 0, 0, Math.PI * 2);
     c.fill();
+
+    c.save();
+    c.beginPath();
+    c.ellipse(side * 1.0, 0.8, 16.4, 17.4, 0, 0, Math.PI * 2);
+    c.clip();
+
+    const gx = lookX * 5.6;
+    const gy = lookY * 4.5;
 
     c.fillStyle = '#0F0E11';
     c.beginPath();
-    c.ellipse(gx, gy, 14.8, 16.0, 0, 0, Math.PI * 2);
+    c.ellipse(gx, gy, 14.6, 15.8, 0, 0, Math.PI * 2);
     c.fill();
 
     const ig = c.createRadialGradient(gx, gy + 6, 1, gx, gy + 6, 10);
-    ig.addColorStop(0, 'rgba(92, 58, 38, 0.55)');
+    ig.addColorStop(0, 'rgba(104, 66, 44, 0.62)');
     ig.addColorStop(1, 'rgba(15, 14, 17, 0)');
     c.fillStyle = ig;
     c.beginPath();
     c.ellipse(gx, gy + 6, 10, 6.5, 0, 0, Math.PI * 2);
     c.fill();
 
+    // Sparkling catchlights shift slightly further for glossy cornea depth!
+    const hlX = lookX * 6.8;
+    const hlY = lookY * 5.4;
     c.fillStyle = '#FFFFFF';
     c.beginPath();
-    c.ellipse(gx - 4.5, gy - 5.5, 4.8, 4.2, -0.25, 0, Math.PI * 2);
+    c.ellipse(hlX - 4.5, hlY - 5.5, 4.8, 4.2, -0.25, 0, Math.PI * 2);
     c.fill();
 
     c.beginPath();
-    c.arc(gx + 4.8, gy + 5.2, 2.0, 0, Math.PI * 2);
+    c.arc(hlX + 4.8, hlY + 5.2, 2.0, 0, Math.PI * 2);
     c.fill();
 
+    c.restore();
     c.restore();
   }
 
@@ -2781,28 +2836,35 @@
     c.fill();
     c.restore();
 
-    // Head
-    const headX = bodyX + st.lookX * 4;
-    const headY = -204 + breath * 0.85 + st.bounce * 4.5;
-    const headTilt = st.baseTilt + st.leanX * 0.002 + st.lookX * 0.04;
+    // Head with 2.5D cursor turn & parallax
+    const headX = bodyX + st.lookX * 11;
+    const headY = -204 + breath * 0.85 + st.lookY * 6.5 + st.bounce * 4.5;
+    const headTilt = st.baseTilt + st.leanX * 0.002 + st.lookX * 0.11;
 
     c.save();
     c.translate(headX, headY);
     c.rotate(headTilt);
 
+    c.save();
+    c.translate(-st.lookX * 5.5, -st.lookY * 3.2);
     drawKuroEar(c, -1, st.leftEarKick, 'stroke');
     drawKuroEar(c, 1, st.rightEarKick, 'stroke');
+    c.restore();
+
     defineKuroFluffyHeadPath(c);
     c.strokeStyle = ink;
     c.lineWidth = lineW * 2;
     c.lineJoin = 'round';
     c.stroke();
 
+    c.save();
+    c.translate(-st.lookX * 5.5, -st.lookY * 3.2);
     drawKuroEar(c, -1, st.leftEarKick, 'fill');
     drawKuroEar(c, 1, st.rightEarKick, 'fill');
+    c.restore();
 
     defineKuroFluffyHeadPath(c);
-    const hg = c.createRadialGradient(-18, -46, 12, 0, 4, 130);
+    const hg = c.createRadialGradient(-18 + st.lookX * 10, -46 + st.lookY * 8, 12, 0, 4, 130);
     hg.addColorStop(0, '#2D313A');
     hg.addColorStop(0.55, '#1A1C21');
     hg.addColorStop(1, '#111216');
@@ -2813,23 +2875,25 @@
     defineKuroFluffyHeadPath(c);
     c.clip();
 
+    const mx = st.lookX * 8.5;
+    const my = st.lookY * 5.5;
     c.fillStyle = '#E6A56A';
     c.beginPath();
-    c.ellipse(-58, 12, 34, 18, -0.22, 0, Math.PI * 2);
-    c.ellipse(58, 12, 34, 18, 0.22, 0, Math.PI * 2);
+    c.ellipse(-58 + mx, 12 + my, 34, 18, -0.22, 0, Math.PI * 2);
+    c.ellipse(58 + mx, 12 + my, 34, 18, 0.22, 0, Math.PI * 2);
     c.fill();
 
     c.beginPath();
-    c.moveTo(-104, 20);
-    c.bezierCurveTo(-76, 6, -48, 14, -26, 16);
-    c.bezierCurveTo(-14, 16, -10, 0, 0, 0);
-    c.bezierCurveTo(10, 0, 14, 16, 26, 16);
-    c.bezierCurveTo(48, 14, 76, 6, 104, 20);
-    c.lineTo(114, 94);
-    c.lineTo(-114, 94);
+    c.moveTo(-114, 20 + my * 0.6);
+    c.bezierCurveTo(-76 + mx, 6 + my, -48 + mx, 14 + my, -26 + mx, 16 + my);
+    c.bezierCurveTo(-14 + mx, 16 + my, -10 + mx, 0 + my, mx, 0 + my);
+    c.bezierCurveTo(10 + mx, 0 + my, 14 + mx, 16 + my, 26 + mx, 16 + my);
+    c.bezierCurveTo(48 + mx, 14 + my, 76 + mx, 6 + my, 114, 20 + my * 0.6);
+    c.lineTo(120, 100);
+    c.lineTo(-120, 100);
     c.closePath();
 
-    const cg = c.createLinearGradient(0, 0, 0, 86);
+    const cg = c.createLinearGradient(0, my, 0, 88);
     cg.addColorStop(0, '#FDF6EA');
     cg.addColorStop(0.75, '#FAF0E1');
     cg.addColorStop(1, '#EFE2CE');
@@ -2838,22 +2902,22 @@
 
     c.fillStyle = 'rgba(206, 186, 166, 0.45)';
     c.beginPath();
-    c.ellipse(0, 76, 36, 12, 0, 0, Math.PI * 2);
+    c.ellipse(mx * 0.6, 76 + my * 0.4, 36, 12, 0, 0, Math.PI * 2);
     c.fill();
 
     c.restore();
 
-    const fx = st.lookX * 4.5;
-    const fy = st.lookY * 3.0;
+    const fx = st.lookX * 12.5;
+    const fy = st.lookY * 8.5;
     c.save();
     c.translate(fx, fy);
 
     c.fillStyle = '#EEB67E';
     c.beginPath();
-    c.ellipse(-28, -28, 11.5, 7.2, 0.28, 0, Math.PI * 2);
+    c.ellipse(-28 + st.lookX * 1.5, -28 + st.lookY * 1.2, 11.5, 7.2, 0.28, 0, Math.PI * 2);
     c.fill();
     c.beginPath();
-    c.ellipse(28, -28, 11.5, 7.2, -0.28, 0, Math.PI * 2);
+    c.ellipse(28 + st.lookX * 1.5, -28 + st.lookY * 1.2, 11.5, 7.2, -0.28, 0, Math.PI * 2);
     c.fill();
 
     const blinkAmount = st.blinkProgress > 0 ? Math.sin(st.blinkProgress) : 0;
