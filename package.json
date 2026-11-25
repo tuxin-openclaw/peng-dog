@@ -1,0 +1,16 @@
+{
+  "name": "peng-dog",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Peng-Dog 小狗键鼠同步互动桌宠（Web + Tauri 双端共享）",
+  "scripts": {
+    "dev:web": "node scripts/dev-server.mjs",
+    "build:web": "node scripts/build-web.mjs",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.5.0"
+  }
+}

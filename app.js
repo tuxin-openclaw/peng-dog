@@ -16,14 +16,33 @@
   const themeLabelEl = document.getElementById('themeLabel');
   const exportBtn = document.getElementById('exportBtn');
   const napBtn = document.getElementById('napBtn');
+  const webContextMenuEl = document.getElementById('webContextMenu');
+  const ctxChkSoundEl = document.getElementById('ctxChkSound');
+  const ctxChkPopupsEl = document.getElementById('ctxChkPopups');
+  const ctxViewChecks = Array.from(document.querySelectorAll('[data-chk-view]'));
   const viewTabs = Array.from(document.querySelectorAll('.char-tab'));
   const treatBtns = Array.from(document.querySelectorAll('.treat-btn'));
 
-  const STAGE_W = 1320;
-  const STAGE_H = 700;
+  // Detect Tauri Desktop Pet runtime (or ?desktop=1 preview mode)
+  const IS_TAURI = Boolean(window.__TAURI__ || window.__TAURI_INTERNALS__);
+  const IS_DESKTOP_PET =
+    IS_TAURI || new URLSearchParams(window.location.search).get('desktop') === '1';
 
-  let currentView = 'all';
+  if (IS_DESKTOP_PET) {
+    document.documentElement.classList.add('is-desktop-pet');
+    document.body.classList.add('is-desktop-pet');
+  }
+
+  let currentView = IS_DESKTOP_PET
+    ? localStorage.getItem('peng_pet_view') || 'sunny'
+    : 'all';
   let isDarkTheme = false;
+  let showKeyPopups = localStorage.getItem('peng_pet_popups') !== 'false';
+
+  function getStageDims() {
+    if (!IS_DESKTOP_PET) return { w: 1320, h: 700 };
+    return currentView === 'all' ? { w: 1280, h: 520 } : { w: 430, h: 525 };
+  }
 
   const viewport = {
     cssW: window.innerWidth,
@@ -42,15 +61,16 @@
     canvas.width = Math.round(viewport.cssW * viewport.dpr);
     canvas.height = Math.round(viewport.cssH * viewport.dpr);
 
-    const padX = 20;
-    const padTop = 60;
-    const padBottom = 50;
-    const availW = Math.max(320, viewport.cssW - padX * 2);
-    const availH = Math.max(240, viewport.cssH - padTop - padBottom);
+    const { w: stageW, h: stageH } = getStageDims();
+    const padX = IS_DESKTOP_PET ? 4 : 20;
+    const padTop = IS_DESKTOP_PET ? 4 : 60;
+    const padBottom = IS_DESKTOP_PET ? 4 : 50;
+    const availW = Math.max(120, viewport.cssW - padX * 2);
+    const availH = Math.max(120, viewport.cssH - padTop - padBottom);
 
-    viewport.scale = Math.min(availW / STAGE_W, availH / STAGE_H);
-    viewport.offsetX = (viewport.cssW - STAGE_W * viewport.scale) * 0.5;
-    viewport.offsetY = padTop + (availH - STAGE_H * viewport.scale) * 0.5;
+    viewport.scale = Math.min(availW / stageW, availH / stageH);
+    viewport.offsetX = (viewport.cssW - stageW * viewport.scale) * 0.5;
+    viewport.offsetY = padTop + (availH - stageH * viewport.scale) * 0.5;
   }
 
   // =========================================================================
@@ -746,10 +766,10 @@
 
     mouseNormX: 0.5,
     mouseNormY: 0.5,
-    pointerStageX: STAGE_W * 0.5,
-    pointerStageY: STAGE_H * 0.4,
-    prevPointerStageX: STAGE_W * 0.5,
-    prevPointerStageY: STAGE_H * 0.4,
+    pointerStageX: 210,
+    pointerStageY: 220,
+    prevPointerStageX: 210,
+    prevPointerStageY: 220,
     pointerInWindow: false,
     mouseLX: INIT_MOUSE_LX,
     mouseLY: INIT_MOUSE_LY,
@@ -837,10 +857,27 @@
   }
 
   function getActivePlacements() {
+    const { w: stageW } = getStageDims();
+    if (IS_DESKTOP_PET) {
+      if (currentView === 'all') {
+        const count = dogsList.length;
+        const spacing = 415;
+        const startX = stageW * 0.5 - ((count - 1) * spacing) * 0.5;
+        return dogsList.map((dog, idx) => ({
+          dog,
+          cx: startX + idx * spacing,
+          baseY: 408,
+          scale: 0.92,
+        }));
+      }
+      const target = dogsById.get(currentView) || dogsList[0];
+      return [{ dog: target, cx: stageW * 0.5, baseY: 412, scale: 0.98 }];
+    }
+
     if (currentView === 'all') {
       const count = dogsList.length;
       const spacing = 425;
-      const startX = STAGE_W * 0.5 - ((count - 1) * spacing) * 0.5;
+      const startX = stageW * 0.5 - ((count - 1) * spacing) * 0.5;
       return dogsList.map((dog, idx) => ({
         dog,
         cx: startX + idx * spacing,
@@ -849,7 +886,22 @@
       }));
     }
     const target = dogsById.get(currentView) || dogsList[0];
-    return [{ dog: target, cx: STAGE_W * 0.5, baseY: 446, scale: 1.16 }];
+    return [{ dog: target, cx: stageW * 0.5, baseY: 446, scale: 1.16 }];
+  }
+
+  // Hit-test if stage coordinates (sx, sy) are over any puppy's head or body
+  function findHoveredPuppyPlacement(sx, sy) {
+    for (const p of getActivePlacements()) {
+      const st = p.dog.state;
+      const cx = p.cx + (DOG_X + st.leanX) * p.scale;
+      const cy = p.baseY - 145 * p.scale;
+      const rx = 132 * p.scale;
+      const ry = 185 * p.scale;
+      if (Math.pow((sx - cx) / rx, 2) + Math.pow((sy - cy) / ry, 2) <= 1.0) {
+        return p;
+      }
+    }
+    return null;
   }
 
   function unitToStage(placement, ux, uy) {
@@ -1109,6 +1161,7 @@
   }
 
   function spawnOrPulseKeyPopup(code, keyObj, displayInfo, isRepeat) {
+    if (!showKeyPopups) return;
     if (isRepeat) {
       const existing = [...inputState.popups].reverse().find((p) => p.code === code && p.isHeld);
       if (existing) {
@@ -1118,23 +1171,30 @@
       }
     }
 
+    const { w: stageW } = getStageDims();
     const placements = getActivePlacements();
     const anchorPlacement = placements[Math.floor(placements.length * 0.5)];
     const keyUX = keyObj ? keyObj.ux : KB_LOCAL.cx;
     const keyUY = keyObj ? keyObj.uy : KB_LOCAL.cy;
     const startPos = unitToStage(anchorPlacement, keyUX, keyUY - 8);
 
-    const boxH = 74;
-    const boxW = Math.round(74 * displayInfo.widthFactor);
+    const compactSingle = IS_DESKTOP_PET && currentView !== 'all';
+    const popupScale = compactSingle ? 0.72 : 1.0;
+    const boxH = Math.round(74 * popupScale);
+    const boxW = Math.round(74 * displayInfo.widthFactor * popupScale);
     const isLeftSide = keyObj ? keyObj.hand === 'left' : false;
 
     let targetX;
     let targetY;
 
-    if (currentView === 'all') {
+    if (compactSingle) {
       const normKeyX = clamp((keyUX - KB_LOCAL.cx) / (KB_LOCAL.w * 0.5), -1, 1);
-      targetX = STAGE_W * 0.5 + normKeyX * 260;
-      targetY = 106;
+      targetX = clamp(stageW * 0.5 - 38 + normKeyX * 72, boxW * 0.5 + 12, stageW - boxW * 0.5 - 120);
+      targetY = 52;
+    } else if (currentView === 'all') {
+      const normKeyX = clamp((keyUX - KB_LOCAL.cx) / (KB_LOCAL.w * 0.5), -1, 1);
+      targetX = stageW * 0.5 + normKeyX * 260;
+      targetY = IS_DESKTOP_PET ? 62 : 106;
 
       const fresh = inputState.popups.filter((p) => p.fadeProgress < 0.45);
       for (let attempt = 0; attempt < 6; attempt++) {
@@ -1145,7 +1205,7 @@
           if (Math.abs(targetX - other.targetX) < minX && Math.abs(targetY - other.targetY) < minY) {
             const dir = attempt % 2 === 0 ? 1 : -1;
             targetX += dir * (minX + 6) * Math.ceil((attempt + 1) / 2);
-            targetX = clamp(targetX, 90 + boxW * 0.5, STAGE_W - 90 - boxW * 0.5);
+            targetX = clamp(targetX, 90 + boxW * 0.5, stageW - 90 - boxW * 0.5);
             overlap = true;
           }
         }
@@ -1168,7 +1228,7 @@
             if (targetY < 96) {
               targetY = 300;
               targetX += isLeftSide ? -52 : 52;
-              targetX = clamp(targetX, 80 + boxW * 0.5, STAGE_W - 80 - boxW * 0.5);
+              targetX = clamp(targetX, 80 + boxW * 0.5, stageW - 80 - boxW * 0.5);
             }
             overlap = true;
           }
@@ -1177,11 +1237,13 @@
       }
     }
 
-    for (let i = 0; i <= inputState.popups.length - 5; i++) {
+    const maxHoldCount = compactSingle ? 2 : 5;
+    const hardMaxCount = compactSingle ? 4 : 7;
+    for (let i = 0; i <= inputState.popups.length - maxHoldCount; i++) {
       inputState.popups[i].fastFade = true;
       inputState.popups[i].isHeld = false;
     }
-    while (inputState.popups.length >= 7) {
+    while (inputState.popups.length >= hardMaxCount) {
       inputState.popups.shift();
     }
 
@@ -1190,6 +1252,7 @@
       main: displayInfo.main,
       w: boxW,
       h: boxH,
+      fontScale: popupScale,
       startX: startPos.sx,
       startY: startPos.sy,
       x: startPos.sx,
@@ -1208,23 +1271,81 @@
   }
 
   // =========================================================================
-  // HUD Controls & Global Listeners (Keyboard + Mouse + Head Petting!)
+  // Tauri Bridge Helpers & Unified Menu Command Dispatcher (Web + Desktop!)
   // =========================================================================
+  function tauriInvoke(cmd, args = {}) {
+    try {
+      if (window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke) {
+        return window.__TAURI__.core.invoke(cmd, args);
+      }
+      if (window.__TAURI_INTERNALS__ && window.__TAURI_INTERNALS__.invoke) {
+        return window.__TAURI_INTERNALS__.invoke(cmd, args);
+      }
+    } catch (_) {}
+    return Promise.resolve();
+  }
+
+  function tauriListen(eventName, handler) {
+    try {
+      if (window.__TAURI__ && window.__TAURI__.event && window.__TAURI__.event.listen) {
+        return window.__TAURI__.event.listen(eventName, handler);
+      }
+    } catch (_) {}
+    return Promise.resolve(() => {});
+  }
+
   function syncThemeUI() {
-    document.body.classList.toggle('theme-dark', isDarkTheme);
-    document.body.classList.toggle('theme-light', !isDarkTheme);
-    themeToggleBtn.setAttribute('aria-pressed', String(isDarkTheme));
-    themeIconEl.textContent = isDarkTheme ? '🌙' : '☀️';
-    themeLabelEl.textContent = isDarkTheme ? '深色' : '浅色';
+    document.body.classList.toggle('theme-dark', isDarkTheme && !IS_DESKTOP_PET);
+    document.body.classList.toggle('theme-light', !isDarkTheme || IS_DESKTOP_PET);
+    if (themeToggleBtn) {
+      themeToggleBtn.setAttribute('aria-pressed', String(isDarkTheme));
+      themeIconEl.textContent = isDarkTheme ? '🌙' : '☀️';
+      themeLabelEl.textContent = isDarkTheme ? '深色' : '浅色';
+    }
+  }
+
+  function syncSoundAndMenuCheckmarks() {
+    if (soundToggleBtn) {
+      soundToggleBtn.setAttribute('aria-pressed', String(soundEnabled));
+      soundIconEl.textContent = soundEnabled ? '🔊' : '🔇';
+      soundLabelEl.textContent = soundEnabled ? '音效开' : '音效关';
+    }
+    if (ctxChkSoundEl) ctxChkSoundEl.textContent = soundEnabled ? '✓' : '';
+    if (ctxChkPopupsEl) ctxChkPopupsEl.textContent = showKeyPopups ? '✓' : '';
+    for (const el of ctxViewChecks) {
+      el.textContent = el.dataset.chkView === currentView ? '✓' : '';
+    }
+  }
+
+  function closeWebContextMenu() {
+    if (webContextMenuEl) webContextMenuEl.classList.remove('is-open');
+  }
+
+  function openWebContextMenu(clientX, clientY) {
+    if (!webContextMenuEl) return;
+    syncSoundAndMenuCheckmarks();
+    webContextMenuEl.classList.add('is-open');
+    const rect = webContextMenuEl.getBoundingClientRect();
+    const x = clamp(clientX, 8, Math.max(8, window.innerWidth - rect.width - 8));
+    const y = clamp(clientY, 8, Math.max(8, window.innerHeight - rect.height - 8));
+    webContextMenuEl.style.left = `${x}px`;
+    webContextMenuEl.style.top = `${y}px`;
   }
 
   function setView(viewId) {
     currentView = viewId;
+    if (IS_DESKTOP_PET) {
+      try {
+        localStorage.setItem('peng_pet_view', viewId);
+      } catch (_) {}
+    }
+    resizeCanvas();
     for (const btn of viewTabs) {
       const active = btn.dataset.view === viewId;
       btn.classList.toggle('is-active', active);
       btn.setAttribute('aria-pressed', String(active));
     }
+    syncSoundAndMenuCheckmarks();
 
     for (const { dog } of getActivePlacements()) {
       dog.state.bounce = 0.85;
@@ -1235,15 +1356,129 @@
     }
 
     const activeDog = dogsById.get(viewId);
-    statusHintEl.textContent = activeDog
-      ? `已切换：${activeDog.name} · 鼠标摸摸头变笑柴表情，敲键/点鼠标伸爪联动`
-      : '默认乖巧表情 · 鼠标移到小狗头上摸摸头解锁开心大笑表情 💕';
+    if (statusHintEl) {
+      statusHintEl.textContent = activeDog
+        ? `已切换：${activeDog.name} · 右键小狗弹出菜单，摸摸头解锁笑柴表情`
+        : '右键小狗弹出功能菜单 · 鼠标摸摸头解锁开心大笑表情 💕';
+    }
     drawScene();
+  }
+
+  function triggerNapCommand() {
+    cancelActiveTreat();
+    if (inputState.idleTime < 12) {
+      inputState.idleTime = 12.1;
+      if (statusHintEl) {
+        statusHintEl.textContent = '哈欠～小狗开始眼皮打架犯困啦，马上吹鼻涕泡 💤（敲键或点击即可戳醒！）';
+      }
+    } else {
+      inputState.idleTime = 16.2;
+      if (statusHintEl) {
+        statusHintEl.textContent = '呼噜噜…小狗正在点头吹鼻涕泡 🫧 敲一下键盘或点它试试！';
+      }
+    }
+    inputState.sleepGraceUntil = inputState.time + 0.9;
+  }
+
+  function feedActivePuppiesDirect(treatType) {
+    const placements = getActivePlacements();
+    const targetPlacement = placements[Math.floor(placements.length * 0.5)];
+    if (!targetPlacement) return;
+    const st = targetPlacement.dog.state;
+    const mx = targetPlacement.cx + (DOG_X + st.leanX + st.lookX * 14) * targetPlacement.scale;
+    const my = targetPlacement.baseY + (-178 + st.lookY * 9) * targetPlacement.scale;
+    inputState.pointerStageX = mx;
+    inputState.pointerStageY = my - 130 * targetPlacement.scale;
+    feedPuppy({ placement: targetPlacement, mx, my, dist: 0, proximity: 1 }, treatType || 'bone');
+  }
+
+  function petActivePuppiesDirect() {
+    wakeFromIdle(false);
+    for (const p of getActivePlacements()) {
+      const st = p.dog.state;
+      const hx = p.cx + (DOG_X + st.leanX) * p.scale;
+      const hy = p.baseY - 204 * p.scale;
+      st.petHoldUntil = Math.max(st.petHoldUntil, inputState.time + 1.45);
+      st.bounce = 1.05;
+      st.leftEarKick = 1.0;
+      st.rightEarKick = 1.0;
+      st.excitement = 1.0;
+      if (p.dog.def.face.sunglasses) st.glintProgress = 0.01;
+      for (let i = 0; i < 3; i++) {
+        spawnFloatingHeart(hx, hy - 78 * p.scale, 15);
+      }
+    }
+    playMouseClickSound(false);
+    incrementAction('摸了摸小狗的脑袋夸夸 💕');
+  }
+
+  function executeMenuCommand(action, value) {
+    switch (action) {
+      case 'set-view':
+        if (value) setView(value);
+        break;
+      case 'feed':
+        feedActivePuppiesDirect(value || 'bone');
+        break;
+      case 'pet-head':
+        petActivePuppiesDirect();
+        break;
+      case 'nap':
+        triggerNapCommand();
+        break;
+      case 'set-sound':
+        soundEnabled = value === 'true';
+        try {
+          localStorage.setItem('peng_pet_sound', String(soundEnabled));
+        } catch (_) {}
+        if (soundEnabled) {
+          ensureAudio();
+          playKeySound(false);
+        }
+        syncSoundAndMenuCheckmarks();
+        break;
+      case 'toggle-sound':
+        executeMenuCommand('set-sound', String(!soundEnabled));
+        break;
+      case 'set-popups':
+        showKeyPopups = value === 'true';
+        try {
+          localStorage.setItem('peng_pet_popups', String(showKeyPopups));
+        } catch (_) {}
+        if (!showKeyPopups) inputState.popups.length = 0;
+        syncSoundAndMenuCheckmarks();
+        break;
+      case 'toggle-popups':
+        executeMenuCommand('set-popups', String(!showKeyPopups));
+        break;
+      case 'toggle-theme':
+        isDarkTheme = !isDarkTheme;
+        syncThemeUI();
+        drawScene();
+        break;
+      case 'export-png':
+        exportTransparentPNG();
+        break;
+      default:
+        break;
+    }
+  }
+
+  if (webContextMenuEl) {
+    webContextMenuEl.addEventListener('mousedown', (e) => e.stopPropagation());
+    webContextMenuEl.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const item = e.target && e.target.closest ? e.target.closest('[data-cmd-action]') : null;
+      if (!item) return;
+      executeMenuCommand(item.dataset.cmdAction, item.dataset.cmdVal || '');
+      closeWebContextMenu();
+    });
   }
 
   for (const btn of viewTabs) {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
+      closeWebContextMenu();
       setView(btn.dataset.view);
       btn.blur();
     });
@@ -1251,27 +1486,21 @@
 
   soundToggleBtn.addEventListener('click', (e) => {
     e.stopPropagation();
-    soundEnabled = !soundEnabled;
-    soundToggleBtn.setAttribute('aria-pressed', String(soundEnabled));
-    soundIconEl.textContent = soundEnabled ? '🔊' : '🔇';
-    soundLabelEl.textContent = soundEnabled ? '音效开' : '音效关';
-    if (soundEnabled) {
-      ensureAudio();
-      playKeySound(false);
-    }
+    closeWebContextMenu();
+    executeMenuCommand('toggle-sound', '');
     soundToggleBtn.blur();
   });
 
   themeToggleBtn.addEventListener('click', (e) => {
     e.stopPropagation();
-    isDarkTheme = !isDarkTheme;
-    syncThemeUI();
-    drawScene();
+    closeWebContextMenu();
+    executeMenuCommand('toggle-theme', '');
     themeToggleBtn.blur();
   });
 
   exportBtn.addEventListener('click', (e) => {
     e.stopPropagation();
+    closeWebContextMenu();
     exportTransparentPNG();
     exportBtn.blur();
   });
@@ -1279,16 +1508,8 @@
   if (napBtn) {
     napBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      cancelActiveTreat();
-      // First click enters yawn -> sleep; clicking while yawning jumps straight to deep snot-bubble sleep!
-      if (inputState.idleTime < 12) {
-        inputState.idleTime = 12.1;
-        statusHintEl.textContent = '哈欠～小狗开始眼皮打架犯困啦，马上吹鼻涕泡 💤（敲键或点击即可戳醒！）';
-      } else {
-        inputState.idleTime = 16.2;
-        statusHintEl.textContent = '呼噜噜…小狗正在点头吹鼻涕泡 🫧 敲一下键盘或点它试试！';
-      }
-      inputState.sleepGraceUntil = inputState.time + 0.85;
+      closeWebContextMenu();
+      triggerNapCommand();
       napBtn.blur();
     });
   }
@@ -1388,6 +1609,72 @@
     }
   }
 
+  let lastDomKeyStamp = 0;
+
+  // Unified KeyDown handler shared by Browser DOM keydown & Tauri OS Global Hook!
+  function handleUnifiedKeyDown(code, domEvent = null, isRepeatOverride = false) {
+    const isRepeat = domEvent ? domEvent.repeat : isRepeatOverride || inputState.activeCodes.has(code);
+
+    if (code === 'Escape') {
+      if (inputState.activeTreat) cancelActiveTreat();
+      closeWebContextMenu();
+    }
+
+    const wokeFromBubble = wakeFromIdle(true);
+    registerComboHit(isRepeat);
+
+    if (domEvent) {
+      inputState.shiftDown = domEvent.shiftKey;
+    } else if (code === 'ShiftLeft' || code === 'ShiftRight') {
+      inputState.shiftDown = true;
+    }
+    if (code === 'MetaLeft' || code === 'MetaRight') inputState.metaDown = true;
+
+    const { keyObj, alias, unknown } = resolveKeyTarget(code);
+    const synthEvent = domEvent || { code, key: '', shiftKey: inputState.shiftDown };
+    const displayInfo = getKeyDisplayInfo(synthEvent, unknown ? null : keyObj, alias);
+
+    if (keyObj) {
+      keyObj.isDown = true;
+      keyObj.glow = 1;
+    }
+
+    inputState.activeCodes.add(code);
+    if (inputState.metaDown && code !== 'MetaLeft' && code !== 'MetaRight') {
+      inputState.metaPressedCodes.add(code);
+    }
+
+    spawnOrPulseKeyPopup(code, keyObj, displayInfo, isRepeat);
+
+    if (!isRepeat && keyObj) {
+      const placements = getActivePlacements();
+      const sparkColor =
+        inputState.combo >= 60 ? `hsl(${(inputState.time * 320) % 360}, 95%, 62%)` : '#FFB84D';
+      for (const p of placements) {
+        assignPawForDogKey(p.dog, keyObj);
+        const pos = unitToStage(p, keyObj.ux, keyObj.uy);
+        spawnRipple(
+          pos.sx,
+          pos.sy,
+          inputState.combo >= 60 ? sparkColor : '#FFA234',
+          Math.max(18, keyObj.w * p.scale * 0.72)
+        );
+        spawnSparkles(pos.sx, pos.sy - 3, sparkColor, placements.length > 1 ? 3 : 5);
+      }
+
+      playKeySound(keyObj.w >= 1.75);
+      const comboSuffix =
+        inputState.combo >= 60
+          ? ` · 🌈 ${inputState.combo} 连击 燃起来了!!`
+          : inputState.combo >= 30
+            ? ` · 🔥 ${inputState.combo} 连击 手速飞起!`
+            : inputState.combo >= 10
+              ? ` · ⚡ ${inputState.combo} 连击!`
+              : '';
+      incrementAction(wokeFromBubble ? undefined : `按下按键：${displayInfo.main}${comboSuffix}`);
+    }
+  }
+
   window.addEventListener('keydown', (e) => {
     const isBrowserShortcut =
       ((e.metaKey || e.ctrlKey) &&
@@ -1408,53 +1695,8 @@
       }
     }
 
-    if (e.code === 'Escape' && inputState.activeTreat) {
-      cancelActiveTreat();
-    }
-
-    const wokeFromBubble = wakeFromIdle(true);
-    registerComboHit(e.repeat);
-
-    inputState.shiftDown = e.shiftKey;
-    if (e.code === 'MetaLeft' || e.code === 'MetaRight') inputState.metaDown = true;
-
-    const { keyObj, alias, unknown } = resolveKeyTarget(e.code);
-    const displayInfo = getKeyDisplayInfo(e, unknown ? null : keyObj, alias);
-
-    if (keyObj) {
-      keyObj.isDown = true;
-      keyObj.glow = 1;
-    }
-
-    inputState.activeCodes.add(e.code);
-    if (inputState.metaDown && e.code !== 'MetaLeft' && e.code !== 'MetaRight') {
-      inputState.metaPressedCodes.add(e.code);
-    }
-
-    spawnOrPulseKeyPopup(e.code, keyObj, displayInfo, e.repeat);
-
-    if (!e.repeat && keyObj) {
-      const placements = getActivePlacements();
-      const sparkColor =
-        inputState.combo >= 60 ? `hsl(${(inputState.time * 320) % 360}, 95%, 62%)` : '#FFB84D';
-      for (const p of placements) {
-        assignPawForDogKey(p.dog, keyObj);
-        const pos = unitToStage(p, keyObj.ux, keyObj.uy);
-        spawnRipple(pos.sx, pos.sy, inputState.combo >= 60 ? sparkColor : '#FFA234', Math.max(18, keyObj.w * p.scale * 0.72));
-        spawnSparkles(pos.sx, pos.sy - 3, sparkColor, placements.length > 1 ? 3 : 5);
-      }
-
-      playKeySound(keyObj.w >= 1.75);
-      const comboSuffix =
-        inputState.combo >= 60
-          ? ` · 🌈 ${inputState.combo} 连击 燃起来了!!`
-          : inputState.combo >= 30
-            ? ` · 🔥 ${inputState.combo} 连击 手速飞起!`
-            : inputState.combo >= 10
-              ? ` · ⚡ ${inputState.combo} 连击!`
-              : '';
-      incrementAction(wokeFromBubble ? undefined : `按下按键：${displayInfo.main}${comboSuffix}`);
-    }
+    lastDomKeyStamp = performance.now();
+    handleUnifiedKeyDown(e.code, e, e.repeat);
   });
 
   function releaseKeyCode(code) {
@@ -1507,14 +1749,14 @@
     inputState.pointerInWindow = true;
   }
 
-  function activateMouseReach(clientX, clientY, holdSeconds = 0.65) {
-    const nx = clamp(clientX / Math.max(1, window.innerWidth), 0, 1);
-    const ny = clamp(clientY / Math.max(1, window.innerHeight), 0, 1);
+  function activateMouseReachByNorm(nx, ny, holdSeconds = 0.65) {
+    const cnx = clamp(nx, 0, 1);
+    const cny = clamp(ny, 0, 1);
 
-    inputState.mouseNormX = nx;
-    inputState.mouseNormY = ny;
-    inputState.mouseTargetLX = lerp(MOUSE_BOUNDS_LOCAL.minX, MOUSE_BOUNDS_LOCAL.maxX, nx);
-    inputState.mouseTargetLY = lerp(MOUSE_BOUNDS_LOCAL.minY, MOUSE_BOUNDS_LOCAL.maxY, ny);
+    inputState.mouseNormX = cnx;
+    inputState.mouseNormY = cny;
+    inputState.mouseTargetLX = lerp(MOUSE_BOUNDS_LOCAL.minX, MOUSE_BOUNDS_LOCAL.maxX, cnx);
+    inputState.mouseTargetLY = lerp(MOUSE_BOUNDS_LOCAL.minY, MOUSE_BOUNDS_LOCAL.maxY, cny);
     inputState.mouseActiveUntil = Math.max(inputState.mouseActiveUntil, inputState.time + holdSeconds);
 
     for (const dogObj of dogsList) {
@@ -1522,7 +1764,59 @@
       st.rightPaw.mode = 'mouse';
       st.rightPaw.isExtended = true;
       st.rightPaw.activeKeyCode = null;
-      st.targetLeanX = 14 + (nx - 0.5) * 8;
+      st.targetLeanX = 14 + (cnx - 0.5) * 8;
+    }
+  }
+
+  function activateMouseReach(clientX, clientY, holdSeconds = 0.65) {
+    activateMouseReachByNorm(
+      clientX / Math.max(1, window.innerWidth),
+      clientY / Math.max(1, window.innerHeight),
+      holdSeconds
+    );
+  }
+
+  function triggerDeskMouseClickVisual(button) {
+    const placements = getActivePlacements();
+    for (const p of placements) {
+      const st = p.dog.state;
+      st.rightEarKick = 0.95;
+      st.bounce = 0.72;
+      st.excitement = Math.min(1, st.excitement + 0.24);
+    }
+
+    if (button === 0) {
+      inputState.leftDown = true;
+      inputState.leftGlow = 1;
+      for (const p of placements) {
+        const mPos = unitToStage(p, inputState.mouseLX - 11, inputState.mouseLY - 14);
+        spawnRipple(mPos.sx, mPos.sy, '#FF7849', 34 * p.scale);
+        spawnSparkles(mPos.sx, mPos.sy, '#FF7849', placements.length > 1 ? 3 : 5);
+        spawnMouseBadge(mPos.sx - 8, mPos.sy + 58 * p.scale, '左键', '#FF6B42');
+      }
+      playMouseClickSound(false);
+      incrementAction('点击鼠标左键');
+    } else if (button === 2) {
+      inputState.rightDown = true;
+      inputState.rightGlow = 1;
+      for (const p of placements) {
+        const mPos = unitToStage(p, inputState.mouseLX + 11, inputState.mouseLY - 14);
+        spawnRipple(mPos.sx, mPos.sy, '#38BDF8', 34 * p.scale);
+        spawnSparkles(mPos.sx, mPos.sy, '#38BDF8', placements.length > 1 ? 3 : 5);
+        spawnMouseBadge(mPos.sx + 8, mPos.sy + 58 * p.scale, '右键', '#0EA5E9');
+      }
+      playMouseClickSound(true);
+      incrementAction('点击鼠标右键');
+    } else if (button === 1) {
+      inputState.middleDown = true;
+      inputState.middleGlow = 1;
+      for (const p of placements) {
+        const mPos = unitToStage(p, inputState.mouseLX, inputState.mouseLY - 14);
+        spawnRipple(mPos.sx, mPos.sy, '#A78BFA', 30 * p.scale);
+        spawnMouseBadge(mPos.sx, mPos.sy + 58 * p.scale, '中键', '#8B5CF6');
+      }
+      playMouseClickSound(true);
+      incrementAction('点击鼠标中键');
     }
   }
 
@@ -1599,14 +1893,17 @@
   });
 
   window.addEventListener('mousedown', (e) => {
-    if (e.target && e.target.closest && e.target.closest('.hud-top')) return;
+    if (e.target && e.target.closest && (e.target.closest('.hud-top') || e.target.closest('.pet-context-menu'))) {
+      return;
+    }
+    closeWebContextMenu();
     updatePointerStagePos(e.clientX, e.clientY);
 
     // Handle click-to-feed or right-click cancel when holding a treat
     if (inputState.activeTreat) {
       if (e.button === 2) {
         cancelActiveTreat();
-        statusHintEl.textContent = '已取消投喂';
+        if (statusHintEl) statusHintEl.textContent = '已取消投喂';
         return;
       }
       if (e.button === 0 && inputState.activeTreat.clickHeld) {
@@ -1615,15 +1912,40 @@
           feedPuppy(feedHit, inputState.activeTreat.type);
         } else {
           cancelActiveTreat();
-          statusHintEl.textContent = '已收起小零食';
+          if (statusHintEl) statusHintEl.textContent = '已收起小零食';
         }
         return;
       }
     }
 
     const wokeFromBubble = wakeFromIdle(true);
+
+    // In Tauri Desktop Pet Mode:
+    // - Right-click opens native dropdown menu (handled in contextmenu)
+    // - Left-click press drags the pet smoothly around the screen (+ pets head!)
+    if (IS_TAURI) {
+      if (e.button === 0) {
+        const headHit = findHoveredHeadPlacement(inputState.pointerStageX, inputState.pointerStageY);
+        if (headHit) {
+          const { dog, scale } = headHit.placement;
+          dog.state.petHoldUntil = Math.max(dog.state.petHoldUntil, inputState.time + 0.9);
+          dog.state.bounce = 0.85;
+          dog.state.leftEarKick = 0.85;
+          dog.state.rightEarKick = 0.85;
+          spawnFloatingHeart(headHit.hx, headHit.hy - 78 * scale, 14);
+        }
+        tauriInvoke('start_pet_drag');
+      }
+      return;
+    }
+
     if (wokeFromBubble) {
       incrementAction('戳破鼻涕泡叫醒了打瞌睡的小狗 ⚡');
+      return;
+    }
+
+    // In Web Mode: right-clicking directly on a puppy opens the dropdown feature menu (handled in contextmenu)
+    if (e.button === 2 && (IS_DESKTOP_PET || findHoveredPuppyPlacement(inputState.pointerStageX, inputState.pointerStageY))) {
       return;
     }
 
@@ -1646,50 +1968,9 @@
       return;
     }
 
+    if (e.button === 1) e.preventDefault();
     activateMouseReach(e.clientX, e.clientY, 0.78);
-    const placements = getActivePlacements();
-
-    for (const p of placements) {
-      const st = p.dog.state;
-      st.rightEarKick = 0.95;
-      st.bounce = 0.72;
-      st.excitement = Math.min(1, st.excitement + 0.24);
-    }
-
-    if (e.button === 0) {
-      inputState.leftDown = true;
-      inputState.leftGlow = 1;
-      for (const p of placements) {
-        const mPos = unitToStage(p, inputState.mouseLX - 11, inputState.mouseLY - 14);
-        spawnRipple(mPos.sx, mPos.sy, '#FF7849', 34 * p.scale);
-        spawnSparkles(mPos.sx, mPos.sy, '#FF7849', placements.length > 1 ? 3 : 5);
-        spawnMouseBadge(mPos.sx - 8, mPos.sy + 58 * p.scale, '左键', '#FF6B42');
-      }
-      playMouseClickSound(false);
-      incrementAction('点击鼠标左键');
-    } else if (e.button === 2) {
-      inputState.rightDown = true;
-      inputState.rightGlow = 1;
-      for (const p of placements) {
-        const mPos = unitToStage(p, inputState.mouseLX + 11, inputState.mouseLY - 14);
-        spawnRipple(mPos.sx, mPos.sy, '#38BDF8', 34 * p.scale);
-        spawnSparkles(mPos.sx, mPos.sy, '#38BDF8', placements.length > 1 ? 3 : 5);
-        spawnMouseBadge(mPos.sx + 8, mPos.sy + 58 * p.scale, '右键', '#0EA5E9');
-      }
-      playMouseClickSound(true);
-      incrementAction('点击鼠标右键');
-    } else if (e.button === 1) {
-      e.preventDefault();
-      inputState.middleDown = true;
-      inputState.middleGlow = 1;
-      for (const p of placements) {
-        const mPos = unitToStage(p, inputState.mouseLX, inputState.mouseLY - 14);
-        spawnRipple(mPos.sx, mPos.sy, '#A78BFA', 30 * p.scale);
-        spawnMouseBadge(mPos.sx, mPos.sy + 58 * p.scale, '中键', '#8B5CF6');
-      }
-      playMouseClickSound(true);
-      incrementAction('点击鼠标中键');
-    }
+    triggerDeskMouseClickVisual(e.button);
   });
 
   window.addEventListener('mouseup', (e) => {
@@ -1701,7 +1982,7 @@
           feedPuppy(feedHit, inputState.activeTreat.type);
         } else {
           cancelActiveTreat();
-          statusHintEl.textContent = '零食没喂到嘴边，拖到小狗脸上松手即可投喂 🦴';
+          if (statusHintEl) statusHintEl.textContent = '零食没喂到嘴边，拖到小狗脸上松手即可投喂 🦴';
         }
       } else if (!inputState.activeTreat.clickHeld) {
         inputState.activeTreat.clickHeld = true;
@@ -1717,10 +1998,25 @@
 
   window.addEventListener('contextmenu', (e) => {
     e.preventDefault();
+    if (inputState.activeTreat) return;
+
+    // 1. Tauri Desktop Pet: pop up Native OS Dropdown Context Menu!
+    if (IS_TAURI) {
+      tauriInvoke('show_pet_context_menu');
+      return;
+    }
+
+    // 2. Web Page (or ?desktop=1 preview): right-clicking a puppy opens the dropdown menu!
+    updatePointerStagePos(e.clientX, e.clientY);
+    if (IS_DESKTOP_PET || findHoveredPuppyPlacement(inputState.pointerStageX, inputState.pointerStageY)) {
+      openWebContextMenu(e.clientX, e.clientY);
+    }
   });
 
   document.addEventListener('mouseleave', () => {
-    inputState.pointerInWindow = false;
+    if (!IS_TAURI) {
+      inputState.pointerInWindow = false;
+    }
     if (!inputState.activeTreat) canvas.style.cursor = 'default';
   });
 
@@ -1752,10 +2048,11 @@
   });
 
   function exportTransparentPNG() {
+    const { w: stageW, h: stageH } = getStageDims();
     const offCanvas = document.createElement('canvas');
     const exportScale = 2;
-    offCanvas.width = STAGE_W * exportScale;
-    offCanvas.height = STAGE_H * exportScale;
+    offCanvas.width = stageW * exportScale;
+    offCanvas.height = stageH * exportScale;
     const octx = offCanvas.getContext('2d');
     if (!octx) return;
 
@@ -2147,6 +2444,11 @@
     const w = viewport.cssW;
     const h = viewport.cssH;
 
+    if (IS_DESKTOP_PET) {
+      ctx.clearRect(0, 0, w, h);
+      return;
+    }
+
     if (isDarkTheme) {
       const grad = ctx.createRadialGradient(w * 0.5, h * 0.45, 40, w * 0.5, h * 0.5, Math.max(w, h) * 0.78);
       grad.addColorStop(0, '#252E3F');
@@ -2282,6 +2584,7 @@
   }
 
   function drawStageAmbientDecorations() {
+    if (IS_DESKTOP_PET) return;
     if (currentView === 'daisy') {
       drawBlueRibbonBow(ctx, 320, 150, 1.05, -0.22, 0.4);
       drawBlueRibbonBow(ctx, 995, 195, 1.05, 0.18, 1.9);
@@ -4375,7 +4678,7 @@
   // Stage-Space Captions, Effects & Enlarged Keycap Popups
   // =========================================================================
   function drawTrioCaptions(placements) {
-    if (currentView !== 'all') return;
+    if (IS_DESKTOP_PET || currentView !== 'all') return;
 
     ctx.save();
     for (const p of placements) {
@@ -4671,14 +4974,17 @@
   function drawComboHudStage() {
     if (inputState.comboBadgeAlpha <= 0.02 || inputState.displayCombo < 3) return;
 
+    const { w: stageW } = getStageDims();
     const cVal = inputState.displayCombo;
     const isOverdrive = cVal >= 60;
     const isTurbo = cVal >= 30;
     const isWarm = cVal >= 10;
 
-    const x = STAGE_W - 142;
-    const y = 52;
-    const popScale = 1 + inputState.comboPop * 0.16;
+    const compactPet = IS_DESKTOP_PET && currentView !== 'all';
+    const baseScale = compactPet ? 0.76 : 1.0;
+    const x = compactPet ? stageW - 96 : stageW - 142;
+    const y = IS_DESKTOP_PET ? 34 : 52;
+    const popScale = baseScale * (1 + inputState.comboPop * 0.16);
 
     ctx.save();
     ctx.translate(x, y);
@@ -4829,7 +5135,8 @@
       ctx.lineWidth = 1.6;
       ctx.stroke();
 
-      const fontSize = p.main.length >= 5 ? 20 : p.main.length >= 3 ? 24 : 33;
+      const baseFontSize = p.main.length >= 5 ? 20 : p.main.length >= 3 ? 24 : 33;
+      const fontSize = Math.round(baseFontSize * (p.fontScale || 1));
       ctx.font = `800 ${fontSize}px -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
@@ -4872,7 +5179,122 @@
     ctx.restore();
   }
 
+  // =========================================================================
+  // Tauri Desktop Pet Global Input & Menu Event Subscription
+  // =========================================================================
+  function initDesktopPetBridge() {
+    if (!IS_TAURI) return;
+
+    try {
+      const savedSound = localStorage.getItem('peng_pet_sound');
+      if (savedSound === 'true') soundEnabled = true;
+    } catch (_) {}
+
+    tauriInvoke('sync_pet_preferences', {
+      view: currentView,
+      soundEnabled,
+      showPopups: showKeyPopups,
+    });
+
+    tauriListen('pet-menu-command', (ev) => {
+      const p = ev && ev.payload ? ev.payload : {};
+      executeMenuCommand(p.action, p.value || '');
+    });
+
+    tauriListen('global-input', (ev) => {
+      const p = ev && ev.payload ? ev.payload : null;
+      if (!p) return;
+
+      switch (p.kind) {
+        case 'key-down':
+          // Avoid double-counting if the Tauri window itself is focused and already received DOM keydown
+          if (performance.now() - lastDomKeyStamp < 28) return;
+          handleUnifiedKeyDown(p.code, null, false);
+          break;
+        case 'key-up':
+          if (p.code === 'ShiftLeft' || p.code === 'ShiftRight') inputState.shiftDown = false;
+          if (p.code === 'MetaLeft' || p.code === 'MetaRight') inputState.metaDown = false;
+          releaseKeyCode(p.code);
+          break;
+        case 'mouse-move': {
+          updatePointerStagePos(p.win_rel_x, p.win_rel_y);
+          const moveStep = Math.hypot(
+            inputState.pointerStageX - inputState.prevPointerStageX,
+            inputState.pointerStageY - inputState.prevPointerStageY
+          );
+
+          if (inputState.idleTime >= 11.8) {
+            if (inputState.time >= inputState.sleepGraceUntil && moveStep > 22) {
+              wakeFromIdle(true);
+            }
+            return;
+          }
+          if (moveStep > 3.0) {
+            inputState.idleTime = 0;
+          }
+
+          if (p.in_pet_bounds) {
+            const headHit = findHoveredHeadPlacement(inputState.pointerStageX, inputState.pointerStageY);
+            if (headHit) {
+              const st = headHit.placement.dog.state;
+              st.petHoldUntil = Math.max(st.petHoldUntil, inputState.time + 0.42);
+              st.excitement = Math.min(1, st.excitement + 0.08);
+              if (moveStep > 4 && inputState.time - st.lastHeartAt > 0.18) {
+                st.lastHeartAt = inputState.time;
+                st.leftEarKick = Math.max(st.leftEarKick, 0.55);
+                st.rightEarKick = Math.max(st.rightEarKick, 0.55);
+                spawnFloatingHeart(headHit.hx, headHit.hy - 78 * headHit.placement.scale);
+              }
+              return;
+            }
+          }
+
+          activateMouseReachByNorm(p.norm_x, p.norm_y, 0.62);
+          break;
+        }
+        case 'mouse-down':
+          // Clicks outside the pet window (in other apps!) animate the puppy's desk mouse L/R/M buttons!
+          if (!p.in_pet_bounds) {
+            wakeFromIdle(true);
+            inputState.mouseActiveUntil = Math.max(inputState.mouseActiveUntil, inputState.time + 0.78);
+            triggerDeskMouseClickVisual(p.button);
+          }
+          break;
+        case 'mouse-up':
+          if (p.button === 0) inputState.leftDown = false;
+          else if (p.button === 2) inputState.rightDown = false;
+          else if (p.button === 1) inputState.middleDown = false;
+          break;
+        case 'wheel':
+          wakeFromIdle(true);
+          inputState.wheelVel += clamp(p.delta_y || 0, -120, 120) * 0.28;
+          inputState.middleGlow = Math.max(inputState.middleGlow, 0.85);
+          inputState.mouseActiveUntil = Math.max(inputState.mouseActiveUntil, inputState.time + 0.65);
+          for (const dogObj of dogsList) {
+            dogObj.state.rightPaw.mode = 'mouse';
+            dogObj.state.rightPaw.isExtended = true;
+          }
+          break;
+        default:
+          break;
+      }
+    });
+  }
+
+  let lastDrawTs = 0;
   function renderFrame(ts) {
+    // Power-saving throttle (~24fps) when deep asleep in desktop pet mode with no active particles
+    if (
+      IS_DESKTOP_PET &&
+      inputState.idleTime > 16.5 &&
+      inputState.popups.length === 0 &&
+      ts - lastDrawTs < 40
+    ) {
+      requestAnimationFrame(renderFrame);
+      return;
+    }
+    lastDrawTs = ts;
+
     const dt = Math.min(0.05, Math.max(0.001, (ts - lastTs) / 1000));
     lastTs = ts;
 
@@ -4883,11 +5305,19 @@
   }
 
   window.addEventListener('resize', () => {
+    closeWebContextMenu();
     resizeCanvas();
     drawScene();
   });
   resizeCanvas();
   syncThemeUI();
+  syncSoundAndMenuCheckmarks();
+  for (const btn of viewTabs) {
+    const active = btn.dataset.view === currentView;
+    btn.classList.toggle('is-active', active);
+    btn.setAttribute('aria-pressed', String(active));
+  }
+  initDesktopPetBridge();
   drawScene();
   requestAnimationFrame(renderFrame);
 })();

@@ -3,13 +3,13 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
-  <title>小狗键鼠桌宠 · Canvas 互动展示</title>
+  <title>小狗键鼠桌宠 · Web & Tauri 双端共享</title>
   <style>
     :root {
       --bg-page: #f4f7fc;
       --hud-bg: rgba(255, 255, 255, 0.86);
       --hud-border: rgba(140, 168, 204, 0.28);
-      --hud-shadow: 0 10px 30px rgba(48, 76, 118, 0.1);
+      --hud-shadow: 0 10px 30px rgba(48, 76, 118, 0.12);
       --text-main: #2c3545;
       --text-muted: #69778c;
       --tab-active-bg: #3b82f6;
@@ -22,9 +22,9 @@
 
     body.theme-dark {
       --bg-page: #151922;
-      --hud-bg: rgba(28, 34, 46, 0.88);
+      --hud-bg: rgba(28, 34, 46, 0.9);
       --hud-border: rgba(255, 255, 255, 0.12);
-      --hud-shadow: 0 12px 32px rgba(0, 0, 0, 0.38);
+      --hud-shadow: 0 12px 32px rgba(0, 0, 0, 0.42);
       --text-main: #eef2f8;
       --text-muted: #9aa6ba;
       --tab-active-bg: #60a5fa;
@@ -50,6 +50,17 @@
       background: var(--bg-page);
       font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
       color: var(--text-main);
+    }
+
+    /* Tauri Desktop Pet Mode: 100% transparent frameless pet window */
+    html.is-desktop-pet,
+    body.is-desktop-pet {
+      background: transparent !important;
+    }
+
+    body.is-desktop-pet .hud-top,
+    body.is-desktop-pet .hud-bottom {
+      display: none !important;
     }
 
     #petCanvas {
@@ -183,6 +194,68 @@
       background: var(--hud-border);
     }
 
+    /* Shared Web Right-Click Dropdown Context Menu */
+    .pet-context-menu {
+      position: fixed;
+      z-index: 50;
+      min-width: 196px;
+      padding: 6px;
+      border-radius: 14px;
+      background: var(--hud-bg);
+      border: 1px solid var(--hud-border);
+      box-shadow: 0 14px 36px rgba(20, 32, 56, 0.2);
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+      display: none;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .pet-context-menu.is-open {
+      display: flex;
+    }
+
+    .ctx-group-title {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text-muted);
+      padding: 4px 10px 2px;
+    }
+
+    .ctx-sep {
+      height: 1px;
+      margin: 4px 6px;
+      background: var(--hud-border);
+    }
+
+    .ctx-item {
+      appearance: none;
+      border: none;
+      background: transparent;
+      color: var(--text-main);
+      font: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      padding: 6px 10px;
+      border-radius: 8px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      text-align: left;
+    }
+
+    .ctx-item:hover {
+      background: var(--tab-hover-bg);
+    }
+
+    .ctx-check {
+      font-size: 12px;
+      color: var(--tab-active-bg);
+      font-weight: 800;
+    }
+
     @media (max-width: 860px) {
       .char-tab, .treat-btn, .hud-btn {
         font-size: 12px;
@@ -246,8 +319,45 @@
 
   <canvas id="petCanvas"></canvas>
 
+  <!-- Shared Web Right-Click Dropdown Menu (mirrors Tauri native menu commands) -->
+  <div class="pet-context-menu" id="webContextMenu" role="menu" aria-label="小狗互动菜单">
+    <div class="ctx-group-title">切换小狗</div>
+    <button type="button" class="ctx-item" data-cmd-action="set-view" data-cmd-val="sunny">
+      <span>🕶️ 墨镜金毛</span><span class="ctx-check" data-chk-view="sunny"></span>
+    </button>
+    <button type="button" class="ctx-item" data-cmd-action="set-view" data-cmd-val="daisy">
+      <span>🌼 蓝巾小柴</span><span class="ctx-check" data-chk-view="daisy"></span>
+    </button>
+    <button type="button" class="ctx-item" data-cmd-action="set-view" data-cmd-val="kuro">
+      <span>🖤 歪头黑柴</span><span class="ctx-check" data-chk-view="kuro"></span>
+    </button>
+    <button type="button" class="ctx-item" data-cmd-action="set-view" data-cmd-val="all">
+      <span>🐾 三只同框</span><span class="ctx-check" data-chk-view="all"></span>
+    </button>
+    <div class="ctx-sep"></div>
+    <div class="ctx-group-title">趣味互动</div>
+    <button type="button" class="ctx-item" data-cmd-action="feed" data-cmd-val="bone"><span>🦴 喂香脆肉骨头</span></button>
+    <button type="button" class="ctx-item" data-cmd-action="feed" data-cmd-val="jerky"><span>🥩 喂炭烤小肉干</span></button>
+    <button type="button" class="ctx-item" data-cmd-action="feed" data-cmd-val="cheese"><span>🧀 喂芝士奶球</span></button>
+    <button type="button" class="ctx-item" data-cmd-action="pet-head" data-cmd-val=""><span>💕 摸摸头夸夸</span></button>
+    <button type="button" class="ctx-item" data-cmd-action="nap" data-cmd-val=""><span>💤 哄它犯困吹鼻涕泡</span></button>
+    <div class="ctx-sep"></div>
+    <button type="button" class="ctx-item" data-cmd-action="toggle-sound" data-cmd-val="">
+      <span>🔊 互动音效</span><span class="ctx-check" id="ctxChkSound"></span>
+    </button>
+    <button type="button" class="ctx-item" data-cmd-action="toggle-popups" data-cmd-val="">
+      <span>⌨️ 按键放大气泡</span><span class="ctx-check" id="ctxChkPopups">✓</span>
+    </button>
+    <button type="button" class="ctx-item" data-cmd-action="toggle-theme" data-cmd-val="">
+      <span>🌓 切换深浅背景</span>
+    </button>
+    <button type="button" class="ctx-item" data-cmd-action="export-png" data-cmd-val="">
+      <span>📸 导出透明 PNG</span>
+    </button>
+  </div>
+
   <footer class="hud-bottom">
-    <span id="statusHint">拖零食投喂 🦴 · 摸摸头变笑柴 💕 · 连续敲键触发狂暴连击 🔥 · 静置自动打瞌睡 💤</span>
+    <span id="statusHint">右键小狗弹出功能菜单 · 拖零食投喂 🦴 · 摸摸头变笑柴 💕 · 连续敲键狂暴连击 🔥</span>
     <span class="divider"></span>
     <span>互动计数 <strong id="actionCount">0</strong></span>
   </footer>
