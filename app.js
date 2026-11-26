@@ -3142,38 +3142,71 @@
   function drawSharedTail(c, def, st, bodyX, breath) {
     const tSpec = def.tail;
     const outline = def.outline;
-    c.save();
     const reach = st.tailReach ** 2 * (3 - 2 * st.tailReach);
-    // As the tail uncurls, the visible section emerges around the outside of the thigh.
-    const rootX = bodyX - 66 - 8 * reach;
-    const rootY = -54 + breath * 0.3 + 21 * reach;
+    const rootX = bodyX - 66;
+    const rootY = -54 + breath * 0.3;
     const wag = Math.sin(st.tailPhase) * (0.14 + st.excitement * 0.25);
     const restAngle = -0.12 + wag;
-    c.translate(rootX, rootY);
-    if (st.tailReach > 0) {
-      const space = keyByCode.get('Space');
-      const dx = space.ux - space.w * 0.35 - rootX;
-      const dy = space.uy + space.press * 2 - rootY;
-      const tipAngle = Math.atan2(tSpec.tip.y, tSpec.tip.x);
-      // Sweep around the outside of the left haunch, then land on the near end of Space.
-      const pressAngle = Math.atan2(dy, dx) - Math.PI * 2 - tipAngle;
-      c.rotate(lerp(restAngle, pressAngle, reach) + tipAngle);
-      c.scale(lerp(1, Math.hypot(dx, dy) / Math.hypot(tSpec.tip.x, tSpec.tip.y), reach), 1);
-      c.rotate(-tipAngle);
-    } else {
-      c.rotate(restAngle);
+    const space = keyByCode.get('Space');
+    const contact = kbToUnitLocal(space.lcx - space.w * 0.22, space.lcy + space.press * 2);
+    const pressX = contact.ux - rootX;
+    const pressY = contact.uy - rootY;
+
+    const tipLength = Math.hypot(tSpec.tip.x, tSpec.tip.y);
+    const axisX = tSpec.tip.x / tipLength;
+    const axisY = tSpec.tip.y / tipLength;
+    const tipAngle = Math.atan2(axisY, axisX);
+    const pressAngle = Math.atan2(pressY, pressX) - Math.PI * 2;
+    const angle = lerp(tipAngle + restAngle, pressAngle, reach);
+    const length = lerp(tipLength, Math.hypot(pressX, pressY), reach);
+    const tipX = Math.cos(angle) * length;
+    const tipY = Math.sin(angle) * length;
+    // Bend from behind the haunch and around the paw before approaching the key.
+    const isSpiky = tSpec.type === 'spiky-shiba';
+    const controlX1 = lerp(tipX / 3, isSpiky ? -83 : -75, reach);
+    const controlY1 = lerp(tipY / 3, 8, reach);
+    const controlX2 = lerp(tipX * 2 / 3, Math.min(isSpiky ? -96 : -88, pressX - 30), reach);
+    const controlY2 = lerp(tipY * 2 / 3, pressY + 10, reach);
+    const widthScale = lerp(1, 0.67, reach);
+
+    function point(x, y) {
+      if (reach === 0) return [x, y];
+
+      // Place each contour point along the bent centerline, keeping its sideways offset.
+      const along = x * axisX + y * axisY;
+      const across = (-x * axisY + y * axisX) * widthScale;
+      const t = clamp(along / tipLength, 0, 1);
+      const u = 1 - t;
+      const cx = 3 * u * u * t * controlX1 + 3 * u * t * t * controlX2 + t ** 3 * tipX;
+      const cy = 3 * u * u * t * controlY1 + 3 * u * t * t * controlY2 + t ** 3 * tipY;
+      const tangentX = u * u * controlX1 + 2 * u * t * (controlX2 - controlX1) + t * t * (tipX - controlX2);
+      const tangentY = u * u * controlY1 + 2 * u * t * (controlY2 - controlY1) + t * t * (tipY - controlY2);
+      const tangent = Math.atan2(tangentY, tangentX);
+      const cos = Math.cos(tangent);
+      const sin = Math.sin(tangent);
+      const extra = along - t * tipLength;
+      return [cx + extra * cos - across * sin, cy + extra * sin + across * cos];
     }
 
+    const moveTo = (x, y) => c.moveTo(...point(x, y));
+    const lineTo = (x, y) => c.lineTo(...point(x, y));
+    const bezierTo = (x1, y1, x2, y2, x, y) =>
+      c.bezierCurveTo(...point(x1, y1), ...point(x2, y2), ...point(x, y));
+    const quadraticTo = (x1, y1, x, y) => c.quadraticCurveTo(...point(x1, y1), ...point(x, y));
+
+    c.save();
+    c.translate(rootX, rootY);
+    if (reach === 0) c.rotate(restAngle);
     if (tSpec.type === 'feathered') {
       c.beginPath();
-      c.moveTo(6, 12);
-      c.bezierCurveTo(-18, 16, -46, 2, -58, -22);
-      c.bezierCurveTo(-64, -34, -54, -44, -42, -36);
-      c.bezierCurveTo(-46, -44, -36, -50, -26, -40);
-      c.bezierCurveTo(-16, -28, -4, -10, 10, -6);
+      moveTo(6, 12);
+      bezierTo(-18, 16, -46, 2, -58, -22);
+      bezierTo(-64, -34, -54, -44, -42, -36);
+      bezierTo(-46, -44, -36, -50, -26, -40);
+      bezierTo(-16, -28, -4, -10, 10, -6);
       c.closePath();
 
-      const tg = c.createLinearGradient(0, 10, -56, -38);
+      const tg = c.createLinearGradient(...point(0, 10), ...point(-56, -38));
       tg.addColorStop(0, tSpec.colors[0]);
       tg.addColorStop(0.6, tSpec.colors[1]);
       tg.addColorStop(1, tSpec.colors[2]);
@@ -3185,6 +3218,9 @@
       c.stroke();
 
       if (tSpec.wagLines && st.tailReach < 0.3) {
+        c.save();
+        if (reach > 0) c.rotate(restAngle);
+        c.globalAlpha *= 1 - st.tailReach / 0.3;
         c.lineWidth = 2.4;
         c.lineCap = 'round';
         c.beginPath();
@@ -3193,18 +3229,19 @@
         c.beginPath();
         c.arc(-52, -34, 22, Math.PI * 0.92, Math.PI * 1.2);
         c.stroke();
+        c.restore();
       }
     } else if (tSpec.type === 'curled-shiba') {
       const path = () => {
         c.beginPath();
-        c.moveTo(8, 18);
-        c.bezierCurveTo(-18, 22, -44, 0, -42, -32);
-        c.bezierCurveTo(-40, -56, -18, -66, 0, -52);
-        c.bezierCurveTo(12, -42, 16, -16, 8, 18);
+        moveTo(8, 18);
+        bezierTo(-18, 22, -44, 0, -42, -32);
+        bezierTo(-40, -56, -18, -66, 0, -52);
+        bezierTo(12, -42, 16, -16, 8, 18);
         c.closePath();
       };
       path();
-      const tg = c.createLinearGradient(-38, -52, 8, 14);
+      const tg = c.createLinearGradient(...point(-38, -52), ...point(8, 14));
       tg.addColorStop(0, tSpec.colors[0]);
       tg.addColorStop(0.55, tSpec.colors[1]);
       tg.addColorStop(1, tSpec.colors[2]);
@@ -3216,7 +3253,12 @@
       c.clip();
       c.fillStyle = 'rgba(255, 250, 240, 0.55)';
       c.beginPath();
-      c.ellipse(-22, -44, 18, 14, -0.3, 0, Math.PI * 2);
+      const [highlightX, highlightY] = point(-22, -44);
+      const [edgeX, edgeY] = point(-5, -49);
+      c.ellipse(
+        highlightX, highlightY, 18, 14 * lerp(1, 0.7, reach),
+        Math.atan2(edgeY - highlightY, edgeX - highlightX), 0, Math.PI * 2
+      );
       c.fill();
       c.restore();
 
@@ -3225,42 +3267,63 @@
       c.lineWidth = def.outlineW;
       c.lineJoin = 'round';
       c.stroke();
-    } else if (tSpec.type === 'spiky-shiba') {
+    } else if (isSpiky) {
+      const root = point(8, 18);
+      const outerEdge = point(lerp(7, 8, reach), -44.5);
+      const outerControl = point(11, -33);
+      const rootCorner = point(12, -18);
+      // Round the join in canvas coordinates, where the bent edges meet.
+      const trim = 1 - 0.5 * reach;
+      const trimmedControl = outerEdge.map((value, i) => lerp(value, outerControl[i], trim));
+      const trimmedEnd = trimmedControl.map((value, i) =>
+        lerp(value, lerp(outerControl[i], rootCorner[i], trim), trim)
+      );
+      const roundedEnd = rootCorner.map((value, i) => lerp(value, root[i], 0.8 * reach));
+
       const path = () => {
         c.beginPath();
-        c.moveTo(8, 18);
-        c.lineTo(-10, 18);
-        c.lineTo(-22, 12);
-        c.lineTo(-16, 8);
-        c.lineTo(-34, -2);
-        c.lineTo(-26, -6);
-        c.lineTo(-44, -22);
-        c.lineTo(-34, -25);
-        c.lineTo(-46, -42);
-        c.lineTo(-33, -42);
-        c.lineTo(-38, -58);
-        c.lineTo(-24, -52);
-        c.lineTo(-22, -66);
-        c.lineTo(-10, -55);
-        c.lineTo(-4, -64);
-        c.quadraticCurveTo(10, -48, 12, -18);
+        c.moveTo(...root);
+        lineTo(-10, 18);
+        // Lay the fur flat along the bend so the inside edge stays continuous.
+        lineTo(-22, 12);
+        lineTo(lerp(-16, -28, reach), 8);
+        lineTo(-34, -2);
+        lineTo(lerp(-26, -37, reach), -6);
+        lineTo(-44, -22);
+        lineTo(lerp(-34, -44, reach), -25);
+        lineTo(-46, -42);
+        lineTo(lerp(-33, -44, reach), lerp(-42, -48, reach));
+        lineTo(-38, -58);
+        lineTo(lerp(-24, -31, reach), lerp(-52, -57, reach));
+        quadraticTo(lerp(-22, -27, reach), lerp(-66, -67, reach), -22, -66);
+        quadraticTo(lerp(-10, -16, reach), lerp(-55, -66, reach), -10, lerp(-55, -61, reach));
+        lineTo(lerp(-4, 0, reach), lerp(-64, -53, reach));
+        quadraticTo(lerp(3, 5, reach), lerp(-56, -49, reach), lerp(7, 8, reach), -44.5);
+        c.quadraticCurveTo(...trimmedControl, ...trimmedEnd);
+        c.quadraticCurveTo(...rootCorner, ...roundedEnd);
         c.closePath();
       };
       path();
-      const tg = c.createRadialGradient(-18, -32, 6, -18, -28, 48);
+      const tg = c.createRadialGradient(...point(-18, -32), 6, ...point(-18, -28), 48);
       tg.addColorStop(0, tSpec.colors[0]);
       tg.addColorStop(0.65, tSpec.colors[1]);
       tg.addColorStop(1, tSpec.colors[2]);
       c.fillStyle = tg;
       c.fill();
 
-      c.strokeStyle = 'rgba(248, 238, 224, 0.55)';
+      c.save();
+      c.clip();
+      c.strokeStyle = `rgba(248, 238, 224, ${lerp(0.55, 0.24, reach)})`;
       c.lineWidth = 2.2;
       c.lineCap = 'round';
       c.beginPath();
-      c.moveTo(-26, 4);
-      c.quadraticCurveTo(-34, -8, -30, -20);
+      moveTo(lerp(-26, -5, reach), lerp(4, 2, reach));
+      quadraticTo(
+        lerp(-34, -20, reach), lerp(-8, -28, reach),
+        lerp(-30, -17, reach), lerp(-20, -53, reach)
+      );
       c.stroke();
+      c.restore();
 
       path();
       c.strokeStyle = outline;
