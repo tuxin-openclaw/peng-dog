@@ -762,7 +762,11 @@
         sleepBlend: 0,
         wakeShockTimer: 0,
         lastZzzAt: 0,
-        // Turbo paw afterimage trails (30+ Combo)
+        // Berserk / Overdrive furious face & sweat state
+        berserkBlend: 0,
+        berserkChomp: 0,
+        lastSweatAt: 0,
+        // Turbo paw afterimage trails (25+ Combo)
         pawTrails: [],
         leftPaw: {
           x: DOG_X - 35,
@@ -854,10 +858,12 @@
     comboMaxWindow: 2.5,
     comboBadgeAlpha: 0,
     comboPop: 0,
+    berserkBlend: 0,
     turboBlend: 0,
     overdriveBlend: 0,
     shakeAmp: 0,
     lastRepeatComboAt: 0,
+    sweatDrops: [],
 
     // 3. Idle Yawn / Sleep / Snot Bubble State
     idleTime: 0,
@@ -1042,6 +1048,28 @@
     inputState.shockMarks.push({ x, y, life: 0, maxLife: 0.52 });
   }
 
+  function spawnSweatBurst(x, y, scale = 1, count = 3) {
+    for (let i = 0; i < count; i++) {
+      const side = i % 2 === 0 ? (Math.random() < 0.5 ? -1 : 1) : i % 3 === 0 ? -1 : 1;
+      const spread = 0.22 + Math.random() * 0.65;
+      const speed = (105 + Math.random() * 105) * scale;
+      const vx = side * Math.cos(spread) * speed;
+      const vy = -Math.sin(spread) * speed - (38 + Math.random() * 48) * scale;
+      inputState.sweatDrops.push({
+        x: x + side * (56 + Math.random() * 28) * scale,
+        y: y + (-34 + (Math.random() - 0.5) * 36) * scale,
+        vx,
+        vy,
+        size: (4.8 + Math.random() * 3.2) * scale,
+        life: 0,
+        maxLife: 0.5 + Math.random() * 0.22,
+      });
+    }
+    if (inputState.sweatDrops.length > 72) {
+      inputState.sweatDrops.splice(0, inputState.sweatDrops.length - 72);
+    }
+  }
+
   // Locate closest puppy's mouth/face for treat feeding & anticipation
   function findFeedTargetPlacement(sx, sy) {
     let best = null;
@@ -1168,15 +1196,15 @@
     inputState.comboTimer = inputState.comboMaxWindow;
     inputState.comboPop = 1.0;
 
-    if (inputState.combo >= 60) {
-      inputState.shakeAmp = Math.min(3.2, inputState.shakeAmp + 2.1);
+    if (inputState.combo >= 45) {
+      inputState.shakeAmp = Math.min(3.5, inputState.shakeAmp + 2.2);
       for (const { dog } of getActivePlacements()) {
         if (dog.def.face.sunglasses && dog.state.glintProgress === 0) {
           dog.state.glintProgress = 0.01;
         }
       }
-    } else if (inputState.combo >= 30) {
-      inputState.shakeAmp = Math.min(1.4, inputState.shakeAmp + 0.7);
+    } else if (inputState.combo >= 25) {
+      inputState.shakeAmp = Math.min(1.9, inputState.shakeAmp + 0.95);
     }
   }
 
@@ -1359,6 +1387,7 @@
 
   function getEffectiveDogState() {
     if (manualDogState !== 'normal') return manualDogState;
+    if (inputState.combo >= 25) return 'overdrive';
     if (inputState.idleTime >= 12.0) return 'sleepy';
     return 'normal';
   }
@@ -1614,19 +1643,23 @@
         statusHintEl.textContent = '已切换「馋嘴」状态 · 流口水眼巴巴等投喂，墨镜金毛露出星星眼 🤤✨';
       }
     } else if (stateId === 'overdrive') {
-      inputState.shakeAmp = Math.max(inputState.shakeAmp, 2.2);
+      inputState.shakeAmp = Math.max(inputState.shakeAmp, 2.5);
       for (const p of placements) {
         const st = p.dog.state;
-        st.bounce = 1.15;
-        st.leftEarKick = 1.15;
-        st.rightEarKick = 1.15;
+        const hx = p.cx + (DOG_X + st.leanX) * p.scale;
+        const hy = p.baseY - 204 * p.scale;
+        st.bounce = 1.25;
+        st.leftEarKick = 1.2;
+        st.rightEarKick = 1.2;
         st.excitement = 1.0;
+        st.berserkChomp = 1.0;
         if (p.dog.def.face.sunglasses) st.glintProgress = 0.01;
-        spawnSparkles(p.cx + (DOG_X + st.leanX) * p.scale, p.baseY - 190 * p.scale, '#FF8F2B', 8);
+        spawnSparkles(hx, p.baseY - 190 * p.scale, '#FF8F2B', 8);
+        spawnSweatBurst(hx, hy, p.scale, placements.length > 1 ? 3 : 6);
       }
       playKeySound(true);
       if (statusHintEl) {
-        statusHintEl.textContent = '已切换「狂暴」状态 · 火焰气场 + RGB 彩虹键盘火力全开 🔥';
+        statusHintEl.textContent = '已切换「狂暴」暴走状态 · 怒目咬牙 + 大汗淋漓 + 火焰 RGB 火力全开 🔥💦';
       }
     }
 
@@ -1854,8 +1887,8 @@
 
     if (!useRight) {
       const lp = st.leftPaw;
-      if ((inputState.combo >= 28 || manualDogState === 'overdrive') && lp.isExtended) {
-        st.pawTrails.push({ x: lp.x, y: lp.y, alpha: 0.52 });
+      if ((inputState.combo >= 24 || manualDogState === 'overdrive') && lp.isExtended) {
+        st.pawTrails.push({ x: lp.x, y: lp.y, alpha: 0.56 });
         if (st.pawTrails.length > 6) st.pawTrails.shift();
       }
       lp.prevX = lp.x;
@@ -1870,8 +1903,8 @@
       st.leftEarKick = 1;
     } else {
       const rp = st.rightPaw;
-      if ((inputState.combo >= 28 || manualDogState === 'overdrive') && rp.isExtended) {
-        st.pawTrails.push({ x: rp.x, y: rp.y, alpha: 0.52 });
+      if ((inputState.combo >= 24 || manualDogState === 'overdrive') && rp.isExtended) {
+        st.pawTrails.push({ x: rp.x, y: rp.y, alpha: 0.56 });
         if (st.pawTrails.length > 6) st.pawTrails.shift();
       }
       rp.prevX = rp.x;
@@ -1890,7 +1923,8 @@
     st.targetLookX = clamp((keyObj.ux - DOG_X) / 150, -0.85, 0.9);
     st.targetLookY = 0.62;
     st.keyGlanceUntil = inputState.time + 0.32;
-    st.bounce = 0.9;
+    st.bounce = 0.95;
+    st.berserkChomp = 1.0;
     st.excitement = Math.min(1, st.excitement + 0.25);
     if (dogObj.def.face.sunglasses && st.glintProgress === 0 && Math.random() < 0.35) {
       st.glintProgress = 0.01;
@@ -1936,26 +1970,35 @@
 
     if (!isRepeat && keyObj) {
       const placements = getActivePlacements();
-      const sparkColor =
-        inputState.combo >= 60 ? `hsl(${(inputState.time * 320) % 360}, 95%, 62%)` : '#FFB84D';
+      const isHighCombo = inputState.combo >= 45 || manualDogState === 'overdrive';
+      const isBerserkCombo = inputState.combo >= 20 || manualDogState === 'overdrive';
+      const sparkColor = isHighCombo
+        ? `hsl(${(inputState.time * 320) % 360}, 95%, 62%)`
+        : '#FFB84D';
       for (const p of placements) {
         assignPawForDogKey(p.dog, keyObj);
         const pos = unitToStage(p, keyObj.ux, keyObj.uy);
         spawnRipple(
           pos.sx,
           pos.sy,
-          inputState.combo >= 60 ? sparkColor : '#FFA234',
+          isHighCombo ? sparkColor : '#FFA234',
           Math.max(18, keyObj.w * p.scale * 0.72)
         );
         spawnSparkles(pos.sx, pos.sy - 3, sparkColor, placements.length > 1 ? 3 : 5);
+        if (isBerserkCombo) {
+          const st = p.dog.state;
+          const hx = p.cx + (DOG_X + st.leanX + st.lookX * 11) * p.scale;
+          const hy = p.baseY - 204 * p.scale;
+          spawnSweatBurst(hx, hy, p.scale, placements.length > 1 ? 2 : 3);
+        }
       }
 
       playKeySound(keyObj.w >= 1.75);
       const comboSuffix =
-        inputState.combo >= 60
-          ? ` · 🌈 ${inputState.combo} 连击 燃起来了!!`
-          : inputState.combo >= 30
-            ? ` · 🔥 ${inputState.combo} 连击 手速飞起!`
+        inputState.combo >= 45
+          ? ` · 🌈 ${inputState.combo} 连击 狂暴全开!!`
+          : inputState.combo >= 25
+            ? ` · 🔥 ${inputState.combo} 连击 暴走咬牙·大汗淋漓!`
             : inputState.combo >= 10
               ? ` · ⚡ ${inputState.combo} 连击!`
               : '';
@@ -2170,8 +2213,11 @@
       inputState.idleTime = 0;
     }
 
-    // Check if user is petting/hovering a puppy's head!
-    const headHit = findHoveredHeadPlacement(inputState.pointerStageX, inputState.pointerStageY);
+    // Check if user is petting/hovering a puppy's head (pause auto-hover petting during berserk overdrive!)
+    const headHit =
+      manualDogState !== 'overdrive' && inputState.combo < 20
+        ? findHoveredHeadPlacement(inputState.pointerStageX, inputState.pointerStageY)
+        : null;
     if (headHit) {
       canvas.style.cursor = 'grab';
       const { dog } = headHit.placement;
@@ -2420,14 +2466,28 @@
     const isForcedHappy = manualDogState === 'happy';
     const isForcedDrool = manualDogState === 'drool';
 
+    const comboBerserkTarget = isForcedOverdrive
+      ? 1
+      : inputState.combo >= 25
+        ? 1
+        : inputState.combo >= 14
+          ? clamp((inputState.combo - 13) / 12, 0, 1)
+          : 0;
+    inputState.berserkBlend = lerp(
+      inputState.berserkBlend,
+      comboBerserkTarget,
+      1 - Math.exp(-dt * (comboBerserkTarget > inputState.berserkBlend ? 11 : 6))
+    );
     inputState.turboBlend = lerp(
       inputState.turboBlend,
-      isForcedOverdrive || inputState.combo >= 30 ? 1 : 0,
+      isForcedOverdrive || inputState.combo >= 25 ? 1 : 0,
       1 - Math.exp(-dt * 8)
     );
+    const overdriveTarget =
+      isForcedOverdrive || inputState.combo >= 45 ? 1 : inputState.combo >= 25 ? 0.62 : 0;
     inputState.overdriveBlend = lerp(
       inputState.overdriveBlend,
-      isForcedOverdrive || inputState.combo >= 60 ? 1 : 0,
+      overdriveTarget,
       1 - Math.exp(-dt * 8)
     );
 
@@ -2471,14 +2531,18 @@
     const activePlacements = getActivePlacements();
     const placementById = new Map(activePlacements.map((p) => [p.dog.id, p]));
     const hoveredHead =
-      inputState.pointerInWindow && !inputState.activeTreat && inputState.idleTime < 12.0
+      inputState.pointerInWindow &&
+      !inputState.activeTreat &&
+      inputState.idleTime < 12.0 &&
+      manualDogState !== 'overdrive' &&
+      inputState.combo < 20
         ? findHoveredHeadPlacement(inputState.pointerStageX, inputState.pointerStageY)
         : null;
     const treatFeedHit = inputState.activeTreat
       ? findFeedTargetPlacement(inputState.pointerStageX, inputState.pointerStageY)
       : null;
 
-    const pawFollow = 1 - Math.exp(-dt * (isForcedOverdrive || inputState.combo >= 30 ? 32 : 24));
+    const pawFollow = 1 - Math.exp(-dt * (isForcedOverdrive || inputState.combo >= 25 ? 33 : 24));
 
     for (const dogObj of dogsList) {
       const st = dogObj.state;
@@ -2539,6 +2603,25 @@
         st.sleepBlend < 0.2 &&
         st.wakeShockTimer <= 0;
       st.happyBlend = lerp(st.happyBlend, isPetted ? 1 : 0, 1 - Math.exp(-dt * (isPetted ? 14 : 8)));
+
+      // Berserk furious face & profuse sweating blend
+      const pauseBerserk =
+        isPetted || Boolean(inputState.activeTreat) || isForcedDrool || st.sleepBlend > 0.2;
+      const dogBerserkTarget = pauseBerserk ? 0 : comboBerserkTarget;
+      st.berserkBlend = lerp(
+        st.berserkBlend,
+        dogBerserkTarget,
+        1 - Math.exp(-dt * (dogBerserkTarget > st.berserkBlend ? 12 : 6.5))
+      );
+      st.berserkChomp *= Math.exp(-dt * 13);
+
+      // Continuous flying sweat droplets while in berserk mode ("大汗淋漓 / 挥汗如雨")
+      if (placement && st.berserkBlend > 0.52 && inputState.time - st.lastSweatAt > 0.16) {
+        st.lastSweatAt = inputState.time + Math.random() * 0.08;
+        const hx = placement.cx + (DOG_X + st.leanX + st.lookX * 11) * placement.scale;
+        const hy = placement.baseY - 204 * placement.scale;
+        spawnSweatBurst(hx, hy, placement.scale, activePlacements.length > 1 ? 1 : 2);
+      }
 
       // Periodic floating hearts while in forced happy state
       if (placement && isForcedHappy && st.happyBlend > 0.7 && inputState.time - st.lastHeartAt > 1.35) {
@@ -2794,6 +2877,18 @@
       inputState.shockMarks[i].life += dt;
       if (inputState.shockMarks[i].life >= inputState.shockMarks[i].maxLife) {
         inputState.shockMarks.splice(i, 1);
+      }
+    }
+
+    for (let i = inputState.sweatDrops.length - 1; i >= 0; i--) {
+      const sw = inputState.sweatDrops[i];
+      sw.life += dt;
+      sw.x += sw.vx * dt;
+      sw.y += sw.vy * dt;
+      sw.vy += 470 * dt;
+      sw.vx *= Math.exp(-dt * 1.8);
+      if (sw.life >= sw.maxLife) {
+        inputState.sweatDrops.splice(i, 1);
       }
     }
   }
@@ -3605,11 +3700,11 @@
     c.closePath();
   }
 
-  function drawSharedUprightEar(c, def, side, kick, pass) {
+  function drawSharedUprightEar(c, def, side, kick, pass, berserk = 0) {
     const hSpec = def.head;
     c.save();
     c.translate(side * 64, -51);
-    c.rotate(side * (0.23 + kick * 0.14));
+    c.rotate(side * (0.23 + kick * 0.14 + berserk * 0.21));
 
     const earPath = () => {
       c.beginPath();
@@ -3687,11 +3782,11 @@
     c.restore();
   }
 
-  function drawSharedFloppyEar(c, def, side, kick) {
+  function drawSharedFloppyEar(c, def, side, kick, berserk = 0) {
     const hSpec = def.head;
     c.save();
     c.translate(side * 96, hSpec.earOffsetY ?? -38);
-    c.rotate(side * (0.1 + kick * 0.12));
+    c.rotate(side * (0.1 + kick * 0.12 - berserk * 0.18));
 
     const earPath = () => {
       c.beginPath();
@@ -3858,6 +3953,149 @@
     c.restore();
   }
 
+  // Fierce Slanted Berserk / Angry Eye (怒目圆瞪 `\ /` + 火焰瞳孔 + 微颤高光)
+  function drawSharedAngryEye(c, def, x, y, side, lookX, lookY, bb, blinkAmount) {
+    c.save();
+    c.translate(x, y);
+
+    const innerX = -side * 17.6;
+    const outerX = side * 17.6;
+
+    if (blinkAmount > 0.82) {
+      if (def.face.eyeSocketRim) {
+        c.strokeStyle = '#FAF2E6';
+        c.lineWidth = 5.8;
+        c.lineCap = 'round';
+        c.beginPath();
+        c.moveTo(outerX * 0.9, -3);
+        c.lineTo(innerX * 0.9, 5);
+        c.stroke();
+      }
+      c.strokeStyle = def.face.eyeSocketRim ? '#0B0C0E' : '#2B1B14';
+      c.lineWidth = 3.8;
+      c.lineCap = 'round';
+      c.beginPath();
+      c.moveTo(outerX * 0.9, -3);
+      c.lineTo(innerX * 0.9, 5);
+      c.stroke();
+      c.restore();
+      return;
+    }
+
+    const outerTopY = lerp(-11.5, -14.5, bb);
+    const innerTopY = lerp(-9.0, 3.6, bb);
+    const botY = lerp(16.8, 13.6, bb);
+    const tremorX = Math.sin(inputState.time * 58 + def.phaseOffset) * 0.95 * bb;
+    const tremorY = Math.cos(inputState.time * 51 + def.phaseOffset * 1.7) * 0.75 * bb;
+
+    const defineAperture = () => {
+      c.beginPath();
+      c.moveTo(innerX, innerTopY);
+      c.quadraticCurveTo(0, lerp(-16.5, -4.0, bb), outerX, outerTopY);
+      c.bezierCurveTo(outerX * 1.05, lerp(4, 2, bb), outerX * 0.66, botY, 0, botY);
+      c.bezierCurveTo(innerX * 0.68, botY, innerX * 1.04, lerp(5, 8.8, bb), innerX, innerTopY);
+      c.closePath();
+    };
+
+    if (def.face.eyeSocketRim) {
+      defineAperture();
+      c.strokeStyle = '#FAF0E1';
+      c.lineWidth = 3.6;
+      c.lineJoin = 'round';
+      c.stroke();
+    }
+
+    defineAperture();
+    c.fillStyle = '#FFFFFF';
+    c.fill();
+
+    if (!def.face.eyeSocketRim) {
+      c.strokeStyle = 'rgba(92, 48, 32, 0.52)';
+      c.lineWidth = 2.0;
+      c.stroke();
+    }
+
+    c.save();
+    defineAperture();
+    c.clip();
+
+    // Subtle heated bloodshot tint at outer eye corner
+    const scGrad = c.createRadialGradient(outerX * 0.78, 2, 1, outerX * 0.78, 2, 12);
+    scGrad.addColorStop(0, `rgba(255, 102, 88, ${(0.36 * bb).toFixed(3)})`);
+    scGrad.addColorStop(1, 'rgba(255, 102, 88, 0)');
+    c.fillStyle = scGrad;
+    c.beginPath();
+    c.arc(outerX * 0.78, 2, 12, 0, Math.PI * 2);
+    c.fill();
+
+    // Contracted intense iris/pupil so crisp white sclera shows around bottom & sides!
+    const gx = lookX * 5.0 + tremorX;
+    const gy = lookY * 3.8 + 0.6 * bb + tremorY;
+    const irisRx = lerp(14.5, 11.2, bb);
+    const irisRy = lerp(15.6, 11.8, bb);
+
+    c.fillStyle = '#120F12';
+    c.beginPath();
+    c.ellipse(gx, gy, irisRx, irisRy, 0, 0, Math.PI * 2);
+    c.fill();
+
+    // Blazing fiery crimson-amber inner iris ring
+    const fg = c.createRadialGradient(gx, gy + 4.2, 1, gx, gy + 4.2, 9.5);
+    fg.addColorStop(0, `rgba(255, 194, 56, ${(0.92 * bb).toFixed(3)})`);
+    fg.addColorStop(0.5, `rgba(255, 68, 32, ${(0.82 * bb).toFixed(3)})`);
+    fg.addColorStop(1, 'rgba(18, 15, 18, 0)');
+    c.fillStyle = fg;
+    c.beginPath();
+    c.ellipse(gx, gy + 4.2, 8.8, 5.8, 0, 0, Math.PI * 2);
+    c.fill();
+
+    // Sharp hot-white primary highlight + trembling spark
+    const hlX = lookX * 5.8 + tremorX * 1.15;
+    const hlY = lookY * 4.4 + tremorY * 1.15;
+    c.fillStyle = '#FFFFFF';
+    c.beginPath();
+    c.ellipse(hlX - 3.6, hlY - 3.8, lerp(4.6, 3.5, bb), lerp(4.0, 3.0, bb), -0.25, 0, Math.PI * 2);
+    c.fill();
+
+    c.beginPath();
+    c.arc(hlX + 4.0, hlY + 3.8, 1.9, 0, Math.PI * 2);
+    c.fill();
+
+    c.restore();
+
+    // Heavy slanted angry upper eyelid slash (`\` on left eye, `/` on right eye)
+    c.lineCap = 'round';
+    if (def.face.eyeSocketRim) {
+      c.strokeStyle = '#F2CEA2';
+      c.lineWidth = 5.6;
+      c.beginPath();
+      c.moveTo(outerX * 1.12, outerTopY - 2.0);
+      c.quadraticCurveTo(0, lerp(-16.5, -5.6, bb), innerX * 1.12, innerTopY - 0.8);
+      c.stroke();
+    }
+
+    c.strokeStyle = def.face.eyeSocketRim ? '#0B0C0E' : '#261812';
+    c.lineWidth = lerp(3.4, 4.8, bb);
+    c.beginPath();
+    c.moveTo(outerX * 1.14, outerTopY - 0.3);
+    c.quadraticCurveTo(0, lerp(-15.5, -3.5, bb), innerX * 1.15, innerTopY + 1.2);
+    c.stroke();
+
+    // Tense lower-eyelid strain crease
+    if (bb > 0.35) {
+      c.strokeStyle = def.face.eyeSocketRim
+        ? `rgba(182, 146, 118, ${(0.75 * bb).toFixed(3)})`
+        : `rgba(112, 62, 42, ${(0.58 * bb).toFixed(3)})`;
+      c.lineWidth = 2.0;
+      c.beginPath();
+      c.moveTo(innerX * 0.45, botY + 3.2);
+      c.quadraticCurveTo(0, botY + 4.2, outerX * 0.62, botY + 1.8);
+      c.stroke();
+    }
+
+    c.restore();
+  }
+
   // Peaceful Sleeping Closed Eyelids (︶ ︶ — curves down onto warm cheek fur!)
   function drawSharedSleepingEye(c, def, x, y, side) {
     c.save();
@@ -3942,9 +4180,11 @@
   }
 
   function drawSharedSunglasses(c, st) {
+    const bb = st.berserkBlend;
+    const jitterX = bb > 0.1 ? Math.sin(inputState.time * 56) * 0.85 * bb : 0;
     c.save();
     const dropOffset = st.sunglassesDrop * 15.5;
-    c.translate(st.lookX * 3.0, st.lookY * 1.8 + dropOffset);
+    c.translate(st.lookX * 3.0 + jitterX, st.lookY * 1.8 + dropOffset + bb * 2.2);
     c.rotate(st.sunglassesDrop * 0.035);
     const sgY = -12 - st.bounce * 1.5;
     c.strokeStyle = '#141518';
@@ -3983,6 +4223,43 @@
 
       c.save();
       c.clip();
+
+      // Blazing crimson-amber angry eye glares burning through dark lenses in Berserk Mode!
+      if (bb > 0.12 && st.sunglassesDrop < 0.45) {
+        const innerX = -side * 15.5;
+        const outerX = side * 16.5;
+        const pulse = 0.88 + Math.sin(inputState.time * 28 + side) * 0.12;
+        c.save();
+        c.globalAlpha = clamp(bb * 1.15, 0, 1) * pulse;
+
+        const eyeAura = c.createRadialGradient(0, 1, 1, 0, 1, 19);
+        eyeAura.addColorStop(0, 'rgba(255, 76, 28, 0.86)');
+        eyeAura.addColorStop(0.6, 'rgba(255, 42, 18, 0.35)');
+        eyeAura.addColorStop(1, 'rgba(255, 42, 18, 0)');
+        c.fillStyle = eyeAura;
+        c.beginPath();
+        c.arc(0, 1, 19, 0, Math.PI * 2);
+        c.fill();
+
+        c.beginPath();
+        c.moveTo(innerX, 4.8);
+        c.quadraticCurveTo(0, -1.8, outerX, -6.6);
+        c.quadraticCurveTo(outerX * 0.45, 7.2, innerX, 4.8);
+        c.closePath();
+        const eg = c.createLinearGradient(innerX, 4, outerX, -6);
+        eg.addColorStop(0, '#FFF176');
+        eg.addColorStop(0.55, '#FF7A22');
+        eg.addColorStop(1, '#FF2A1C');
+        c.fillStyle = eg;
+        c.fill();
+
+        c.fillStyle = '#FFFFFF';
+        c.beginPath();
+        c.ellipse(side * 1.5, 0.5, 4.2, 1.9, -side * 0.32, 0, Math.PI * 2);
+        c.fill();
+        c.restore();
+      }
+
       const glintShift =
         (st.glintProgress > 0 ? (st.glintProgress - 0.3) * 56 : 0) + st.lookX * 8;
       c.strokeStyle = 'rgba(255, 255, 255, 0.38)';
@@ -4005,16 +4282,366 @@
     c.restore();
   }
 
+  function drawBerserkMouth(c, def, st, bb) {
+    const fSpec = def.face;
+    const mBlend = clamp((bb - 0.16) / 0.68, 0, 1);
+    const chomp =
+      st.berserkChomp * 0.72 +
+      (Math.sin(inputState.time * 34 + def.phaseOffset) * 0.5 + 0.5) *
+        0.38 *
+        Math.max(0.35, inputState.overdriveBlend);
+    const mw = lerp(22, 33.5, mBlend);
+    const topY = lerp(24, 19.5, mBlend);
+    const cornerTopY = lerp(28, 25.5, mBlend);
+    const botY = lerp(32.5, 45.5 + chomp * 4.8, mBlend);
+    const cornerBotY = lerp(31, 41.5 + chomp * 3.2, mBlend);
+
+    const snarlPath = () => {
+      c.beginPath();
+      c.moveTo(-mw, cornerTopY);
+      c.quadraticCurveTo(0, topY - 2.2 * mBlend, mw, cornerTopY);
+      c.bezierCurveTo(mw + 3.2, lerp(cornerTopY, cornerBotY, 0.52), mw + 1.5, cornerBotY, mw - 3, cornerBotY + 1);
+      c.quadraticCurveTo(0, botY - 2.6 * mBlend, -mw + 3, cornerBotY + 1);
+      c.bezierCurveTo(-mw - 1.5, cornerBotY, -mw - 3.2, lerp(cornerTopY, cornerBotY, 0.52), -mw, cornerTopY);
+      c.closePath();
+    };
+
+    c.save();
+    snarlPath();
+    c.fillStyle = '#54161D';
+    c.fill();
+
+    c.save();
+    c.clip();
+
+    // Vibrating fiery red tongue visible when jaws gnash apart on intense combos!
+    const gritY = lerp(topY, botY, 0.51);
+    const jawGap = chomp * 3.4 * clamp(inputState.overdriveBlend * 1.25, 0.25, 1) * mBlend;
+    if (jawGap > 0.7) {
+      c.fillStyle = '#F26B7E';
+      c.beginPath();
+      c.ellipse(0, gritY + 3, mw * 0.58, jawGap + 5.5, 0, 0, Math.PI * 2);
+      c.fill();
+    }
+
+    // Upper & lower clenched white teeth bands ("咬牙切齿")
+    const upperEdgeY = gritY - jawGap;
+    const lowerEdgeY = gritY + jawGap;
+
+    c.fillStyle = '#FFFFFF';
+    c.beginPath();
+    c.rect(-mw - 6, topY - 8, (mw + 6) * 2, Math.max(2, upperEdgeY - (topY - 8)));
+    c.fill();
+
+    c.beginPath();
+    c.rect(-mw - 6, lowerEdgeY, (mw + 6) * 2, Math.max(2, botY + 10 - lowerEdgeY));
+    c.fill();
+
+    // Cute-fierce pointed puppy canine fangs (上下小尖虎牙)
+    c.strokeStyle = fSpec.lipStroke;
+    c.lineWidth = 1.9;
+    c.lineJoin = 'round';
+    for (const side of [-1, 1]) {
+      const fx = side * (mw * 0.58);
+      c.fillStyle = '#FFFFFF';
+      c.beginPath();
+      c.moveTo(fx - 4.2, upperEdgeY - 0.8);
+      c.lineTo(fx, upperEdgeY + 5.2 * mBlend);
+      c.lineTo(fx + 4.2, upperEdgeY - 0.8);
+      c.closePath();
+      c.fill();
+      c.stroke();
+
+      c.beginPath();
+      c.moveTo(fx - 3.6, lowerEdgeY + 0.8);
+      c.lineTo(fx + side * 0.8, lowerEdgeY - 3.8 * mBlend);
+      c.lineTo(fx + 3.6, lowerEdgeY + 0.8);
+      c.closePath();
+      c.fill();
+      c.stroke();
+    }
+
+    // Grit seam & vertical incisor dividers
+    c.strokeStyle = fSpec.lipStroke;
+    c.lineWidth = 2.1;
+    c.beginPath();
+    c.moveTo(-mw - 2, upperEdgeY);
+    c.quadraticCurveTo(0, upperEdgeY - 1.2, mw + 2, upperEdgeY);
+    if (jawGap > 0.6) {
+      c.moveTo(-mw - 2, lowerEdgeY);
+      c.quadraticCurveTo(0, lowerEdgeY - 1.0, mw + 2, lowerEdgeY);
+    }
+    for (const tx of [-9.5, 0, 9.5]) {
+      c.moveTo(tx, topY - 3);
+      c.lineTo(tx, upperEdgeY);
+      c.moveTo(tx, lowerEdgeY);
+      c.lineTo(tx, botY + 3);
+    }
+    c.stroke();
+    c.restore();
+
+    // Bold snarling outer lip contour + philtrum + tense mouth-corner anger creases
+    snarlPath();
+    c.strokeStyle = fSpec.lipStroke;
+    c.lineWidth = 3.1;
+    c.lineJoin = 'round';
+    c.stroke();
+
+    c.lineCap = 'round';
+    c.lineWidth = 2.8;
+    c.beginPath();
+    c.moveTo(0, 17.5);
+    c.lineTo(0, topY - 1);
+    c.stroke();
+
+    if (mBlend > 0.45) {
+      c.lineWidth = 2.2;
+      for (const side of [-1, 1]) {
+        c.beginPath();
+        c.arc(side * (mw + 1.5), (cornerTopY + cornerBotY) * 0.5, 6.2, side > 0 ? -0.75 : Math.PI - 0.65, side > 0 ? 0.75 : Math.PI + 0.65);
+        c.stroke();
+      }
+    }
+    c.restore();
+  }
+
+  function drawBerserkSteamPuffs(c, def, bb) {
+    const steamStrength = clamp((bb - 0.3) / 0.6, 0, 1);
+    if (steamStrength <= 0.02) return;
+
+    for (const puffIdx of [0, 1]) {
+      const t = (inputState.time * 1.85 + def.phaseOffset * 0.31 + puffIdx * 0.5) % 1;
+      const env = t < 0.18 ? t / 0.18 : 1 - easeOutCubic((t - 0.18) / 0.82);
+      const dist = easeOutCubic(t);
+
+      for (const side of [-1, 1]) {
+        const sx = side * (17 + dist * 38);
+        const sy = 16 + dist * 16 - Math.sin(t * Math.PI) * 3;
+        const sc = (0.42 + dist * 0.72) * (0.8 + steamStrength * 0.28);
+
+        c.save();
+        c.globalAlpha = env * steamStrength * 0.86;
+        c.translate(sx, sy);
+        c.rotate(side * (0.28 + dist * 0.22));
+        c.scale(sc, sc);
+
+        const cloudPath = () => {
+          c.beginPath();
+          c.arc(-5 * side, 0, 5.2, 0, Math.PI * 2);
+          c.arc(2 * side, -2.8, 6.8, 0, Math.PI * 2);
+          c.arc(8.5 * side, 2.2, 5.8, 0, Math.PI * 2);
+        };
+
+        c.fillStyle = '#FFFFFF';
+        cloudPath();
+        c.fill();
+
+        c.strokeStyle = 'rgba(128, 152, 180, 0.52)';
+        c.lineWidth = 1.6;
+        c.beginPath();
+        c.arc(2 * side, -2.8, 6.8, -Math.PI * 0.75, Math.PI * 0.35);
+        c.stroke();
+        c.restore();
+      }
+    }
+  }
+
+  function drawAngerVeinMark(c, x, y, scale, rot, pulsePhase) {
+    if (scale <= 0.04) return;
+    const pulse = 1 + Math.sin(inputState.time * 18 + pulsePhase) * 0.16;
+    c.save();
+    c.translate(x, y);
+    c.rotate(rot);
+    c.scale(scale * pulse, scale * pulse);
+    c.lineCap = 'round';
+    c.lineJoin = 'round';
+
+    const drawFourTicks = () => {
+      for (let q = 0; q < 4; q++) {
+        c.save();
+        c.rotate((q * Math.PI) / 2);
+        c.beginPath();
+        c.moveTo(3.6, 13.5);
+        c.quadraticCurveTo(3.4, 3.4, 13.5, 3.6);
+        c.stroke();
+        c.restore();
+      }
+    };
+
+    // Crisp white sticker halo so the crimson vein pops on gold, orange, AND black fur!
+    c.strokeStyle = '#FFFFFF';
+    c.lineWidth = 6.6;
+    drawFourTicks();
+
+    c.strokeStyle = '#FF2636';
+    c.lineWidth = 3.3;
+    drawFourTicks();
+    c.restore();
+  }
+
+  // Profuse Berserk Sweating ("大汗淋漓": 6 rolling face sweat streams + 2 temple `💦` splash bursts + anger veins `💢`)
+  function drawBerserkHeadOverlays(c, def, st) {
+    const bb = st.berserkBlend;
+    if (bb <= 0.06 || st.sleepBlend >= 0.25) return;
+
+    // 1. Popping Manga Anger Veins (💢 暴起十字青筋)
+    const veinScale = clamp((bb - 0.14) / 0.55, 0, 1);
+    if (veinScale > 0.04) {
+      drawAngerVeinMark(c, -56, -57, 1.02 * veinScale, -0.18, def.phaseOffset);
+      if (bb > 0.62 && inputState.overdriveBlend > 0.4) {
+        drawAngerVeinMark(
+          c,
+          56,
+          -66,
+          0.68 * clamp((bb - 0.62) / 0.35, 0, 1),
+          0.22,
+          def.phaseOffset + 1.9
+        );
+      }
+    }
+
+    // 2. Staggered Streaming Sweat Drops Rolling Down Forehead, Temples & Cheeks
+    const streams = [
+      { x0: 78, y0: -52, x1: 88, y1: 18, sz: 1.18, spd: 1.32, ph: 0.0 },
+      { x0: -77, y0: -46, x1: -87, y1: 22, sz: 1.1, spd: 1.24, ph: 0.47 },
+      { x0: 36, y0: -77, x1: 43, y1: -39, sz: 0.86, spd: 1.48, ph: 0.22 },
+      { x0: -22, y0: -79, x1: -28, y1: -43, sz: 0.8, spd: 1.4, ph: 0.71 },
+      { x0: 73, y0: 14, x1: 64, y1: 58, sz: 0.96, spd: 1.36, ph: 0.63 },
+      { x0: -71, y0: 10, x1: -63, y1: 55, sz: 0.92, spd: 1.3, ph: 0.16 },
+    ];
+
+    const activeCount = bb > 0.55 ? streams.length : bb > 0.25 ? 4 : 2;
+    for (let i = 0; i < activeCount; i++) {
+      const s = streams[i];
+      const t = (inputState.time * s.spd + def.phaseOffset * 0.37 + s.ph) % 1;
+      const alpha =
+        (t < 0.15 ? t / 0.15 : t > 0.8 ? (1 - t) / 0.2 : 1) * clamp(bb * 1.15, 0, 1);
+      if (alpha <= 0.03) continue;
+
+      const x = lerp(s.x0, s.x1, t);
+      const y = lerp(s.y0, s.y1, t);
+      const dx = s.x1 - s.x0;
+      const dy = s.y1 - s.y0;
+      const travelAngle = Math.atan2(dy, dx) - Math.PI * 0.5;
+      const stretch = 1 + t * 0.18;
+
+      c.save();
+      c.globalAlpha = alpha;
+
+      // Glistening wet trail streak behind rolling sweat bead
+      const trailT = Math.max(0, t - 0.26);
+      const tx = lerp(s.x0, s.x1, trailT);
+      const ty = lerp(s.y0, s.y1, trailT);
+      c.strokeStyle = 'rgba(255, 255, 255, 0.75)';
+      c.lineWidth = 3.2 * s.sz;
+      c.lineCap = 'round';
+      c.beginPath();
+      c.moveTo(tx, ty);
+      c.lineTo(x, y - 2);
+      c.stroke();
+
+      c.strokeStyle = 'rgba(92, 200, 255, 0.85)';
+      c.lineWidth = 1.8 * s.sz;
+      c.beginPath();
+      c.moveTo(tx, ty);
+      c.lineTo(x, y - 2);
+      c.stroke();
+
+      c.translate(x, y);
+      c.rotate(travelAngle);
+      c.scale(s.sz, s.sz * stretch);
+
+      const dropPath = () => {
+        c.beginPath();
+        c.moveTo(0, -9.5);
+        c.bezierCurveTo(6.6, -1.2, 7.6, 8.2, 0, 10.6);
+        c.bezierCurveTo(-7.6, 8.2, -6.6, -1.2, 0, -9.5);
+        c.closePath();
+      };
+
+      dropPath();
+      c.strokeStyle = 'rgba(255, 255, 255, 0.92)';
+      c.lineWidth = 3.6;
+      c.lineJoin = 'round';
+      c.stroke();
+
+      const sg = c.createLinearGradient(0, -9.5, 0, 11);
+      sg.addColorStop(0, '#F0FBFF');
+      sg.addColorStop(0.55, '#6CD0FF');
+      sg.addColorStop(1, '#2996F0');
+      c.fillStyle = sg;
+      c.fill();
+
+      c.strokeStyle = '#1875C6';
+      c.lineWidth = 1.7;
+      c.stroke();
+
+      c.fillStyle = '#FFFFFF';
+      c.beginPath();
+      c.arc(-2.1, 4.0, 1.9, 0, Math.PI * 2);
+      c.fill();
+      c.restore();
+    }
+
+    // 3. Radiating Manga Sweat Splashes (`💦`) Flanking Both Temples!
+    if (bb > 0.35) {
+      const splashStrength = clamp((bb - 0.3) / 0.55, 0, 1);
+      for (const [side, baseY, phaseShift] of [
+        [1, -48, 0.0],
+        [-1, -34, 0.5],
+      ]) {
+        const stT = (inputState.time * 3.1 + def.phaseOffset * 0.4 + phaseShift) % 1;
+        const env = stT < 0.2 ? stT / 0.2 : 1 - easeOutCubic((stT - 0.2) / 0.8);
+        const reach = easeOutCubic(stT);
+
+        c.save();
+        c.globalAlpha = env * splashStrength * 0.94;
+        c.translate(side * (98 + reach * 16), baseY - reach * 8);
+
+        for (const [ang, distMul, dScale] of [
+          [-0.42, 1.0, 0.76],
+          [0.04, 1.22, 0.92],
+          [0.48, 0.92, 0.7],
+        ]) {
+          c.save();
+          const radAng = side > 0 ? ang : Math.PI - ang;
+          const dist = reach * 18 * distMul;
+          c.translate(Math.cos(radAng) * dist, Math.sin(radAng) * dist);
+          c.rotate(radAng + Math.PI * 0.5);
+          c.scale(dScale, dScale);
+
+          c.beginPath();
+          c.moveTo(0, 7.5);
+          c.bezierCurveTo(4.6, 1, 5.2, -5.5, 0, -7.2);
+          c.bezierCurveTo(-5.2, -5.5, -4.6, 1, 0, 7.5);
+          c.closePath();
+
+          c.strokeStyle = '#FFFFFF';
+          c.lineWidth = 3.2;
+          c.stroke();
+          c.fillStyle = '#5CC8FF';
+          c.fill();
+          c.strokeStyle = '#1B7ACA';
+          c.lineWidth = 1.4;
+          c.stroke();
+          c.restore();
+        }
+        c.restore();
+      }
+    }
+  }
+
   // Unified Expression Renderer:
   //   happyBlend = 0 -> Default Kuro calm/sweet expression (round glossy eyes + closed ω smile)
   //   happyBlend = 1 -> Petted Daisy happy expression (crescent eyes + rosy blush + open tongue laugh!)
-  //   (Sunny keeps sunglasses + mouth bone at all times, while still getting happy blush + open tongue laugh!)
+  //   berserkBlend = 1 -> Furious Berserk Mode (angry `\ /` brows & eyes + heated red flush + fanged snarl + steam!)
   function drawSharedFaceExpression(c, def, st) {
     const fSpec = def.face;
     const hb = st.happyBlend;
     const sb = st.sleepBlend;
     const yb = st.yawnBlend;
     const ab = st.anticipationBlend;
+    const bb = st.berserkBlend;
     const chewActive = st.chewTimer > 0 ? clamp(st.chewTimer / 0.3, 0, 1) : 0;
     const chewPulse = st.chewTimer > 0 ? Math.sin(inputState.time * 22) : 0;
     const fx = st.lookX * 13.0;
@@ -4023,17 +4650,78 @@
     c.save();
     c.translate(fx, fy);
 
-    // 1. Eyebrow Dots (豆眉 for Kuro & Daisy)
+    // 0. Berserk Heated Forehead & Face Red Flush ("气得上头红温")
+    if (bb > 0.05) {
+      c.save();
+      const fg = c.createRadialGradient(0, -42, 6, 0, -38, 84);
+      fg.addColorStop(0, `rgba(248, 56, 38, ${((def.face.eyeSocketRim ? 0.28 : 0.34) * bb).toFixed(3)})`);
+      fg.addColorStop(0.65, `rgba(248, 72, 48, ${(0.12 * bb).toFixed(3)})`);
+      fg.addColorStop(1, 'rgba(248, 72, 48, 0)');
+      c.fillStyle = fg;
+      c.beginPath();
+      c.ellipse(0, -38, 82, 38, 0, 0, Math.PI * 2);
+      c.fill();
+
+      for (const side of [-1, 1]) {
+        const bx = side * 64;
+        const by = 18;
+        const cg = c.createRadialGradient(bx, by, 2, bx, by, 28);
+        cg.addColorStop(0, `rgba(250, 68, 52, ${(0.68 * bb).toFixed(3)})`);
+        cg.addColorStop(1, 'rgba(250, 68, 52, 0)');
+        c.fillStyle = cg;
+        c.beginPath();
+        c.ellipse(bx, by, 28, 17, side * 0.08, 0, Math.PI * 2);
+        c.fill();
+
+        if (bb > 0.3) {
+          c.strokeStyle = `rgba(218, 42, 38, ${(0.72 * bb).toFixed(3)})`;
+          c.lineWidth = 2.2;
+          c.lineCap = 'round';
+          for (const ox of [-6.5, 0, 6.5]) {
+            c.beginPath();
+            c.moveTo(bx + ox - 2.2, by + 4.0);
+            c.lineTo(bx + ox + 2.2, by - 4.0);
+            c.stroke();
+          }
+        }
+      }
+      c.restore();
+    }
+
+    // 1. Eyebrow Dots (豆眉 for Kuro & Daisy — morphs into fierce `\ /` angry Shiba scowl in Berserk Mode!)
     if (def.head.browDots) {
       const bd = def.head.browDots;
-      const liftY = -hb * 3.5 - ab * 3.0 - (st.wakeShockTimer > 0 ? 5.5 : 0) + sb * 3.0;
+      const liftY = -hb * 3.5 - ab * 3.0 - (st.wakeShockTimer > 0 ? 5.5 : 0) + sb * 3.0 + bb * 5.2;
+      const bx = bd.x - bb * 3.6;
+      const rx = lerp(bd.rx, 16.2, bb);
+      const ry = lerp(bd.ry, 6.0, bb);
+      const leftRot = lerp(bd.tilt, 0.58, bb);
+      const rightRot = lerp(-bd.tilt, -0.58, bb);
+
       c.fillStyle = bd.color;
       c.beginPath();
-      c.ellipse(-bd.x + st.lookX * 1.5, bd.y + st.lookY * 1.2 + liftY, bd.rx, bd.ry, bd.tilt, 0, Math.PI * 2);
+      c.ellipse(-bx + st.lookX * 1.5, bd.y + st.lookY * 1.2 + liftY, rx, ry, leftRot, 0, Math.PI * 2);
       c.fill();
       c.beginPath();
-      c.ellipse(bd.x + st.lookX * 1.5, bd.y + st.lookY * 1.2 + liftY, bd.rx, bd.ry, -bd.tilt, 0, Math.PI * 2);
+      c.ellipse(bx + st.lookX * 1.5, bd.y + st.lookY * 1.2 + liftY, rx, ry, rightRot, 0, Math.PI * 2);
       c.fill();
+
+      // Glabella scowl wrinkle lines (`||` between brows) when angry!
+      if (bb > 0.28) {
+        c.save();
+        c.globalAlpha = clamp((bb - 0.22) / 0.6, 0, 1);
+        c.strokeStyle = def.face.eyeSocketRim ? '#F2CEA2' : '#7A3B20';
+        c.lineWidth = 2.5;
+        c.lineCap = 'round';
+        const gy = bd.y + liftY + 6;
+        c.beginPath();
+        c.moveTo(-4.2, gy - 4);
+        c.quadraticCurveTo(-2.8, gy + 2, -3.6, gy + 7);
+        c.moveTo(4.2, gy - 4);
+        c.quadraticCurveTo(2.8, gy + 2, 3.6, gy + 7);
+        c.stroke();
+        c.restore();
+      }
     }
 
     // 2. Cheek Blush (blooms rosy Daisy blush on head-pet, chewing, or warm sleep!)
@@ -4067,10 +4755,47 @@
       c.restore();
     }
 
-    // 3. Eyes: Sunglasses (with Starry Peek!) | Sleeping (︶ ︶) | Yawning (squint + tear) | Happy (◠ ◠) | Calm Round
+    // 3. Eyes: Sunglasses (+ Angry V-Brows & Red Lens Glare!) | Sleeping | Yawning | Angry (`\ /`) | Happy | Calm
     if (fSpec.sunglasses) {
       drawSunnyStarryPeekEyes(c, st);
       drawSharedSunglasses(c, st);
+
+      // Sunny's Thick Furrowed Golden Angry V-Brows pressing over sunglasses frame!
+      if (bb > 0.12 && st.sunglassesDrop < 0.45) {
+        c.save();
+        c.globalAlpha = clamp((bb - 0.08) / 0.45, 0, 1);
+        const browDrop = bb * 3.5 - st.bounce * 1.2;
+        for (const side of [-1, 1]) {
+          c.save();
+          c.translate(side * 34 + st.lookX * 2.5, -21 + browDrop);
+          const inX = -side * 22;
+          const outX = side * 23;
+          c.beginPath();
+          c.moveTo(inX, 6.5);
+          c.quadraticCurveTo(0, -1.5, outX, -10.5);
+          c.quadraticCurveTo(outX * 0.92, -16.5, 0, -8.5);
+          c.quadraticCurveTo(inX * 0.95, -0.5, inX, 6.5);
+          c.closePath();
+          c.fillStyle = '#F2BC4B';
+          c.fill();
+          c.strokeStyle = '#181411';
+          c.lineWidth = 3.1;
+          c.lineJoin = 'round';
+          c.stroke();
+          c.restore();
+        }
+        // Scowl wrinkle ticks between Sunny's brows
+        c.strokeStyle = '#6E4514';
+        c.lineWidth = 2.4;
+        c.lineCap = 'round';
+        c.beginPath();
+        c.moveTo(-3.8, -23 + browDrop);
+        c.lineTo(-2.8, -16.5 + browDrop);
+        c.moveTo(3.8, -23 + browDrop);
+        c.lineTo(2.8, -16.5 + browDrop);
+        c.stroke();
+        c.restore();
+      }
     } else if (sb > 0.55) {
       drawSharedSleepingEye(c, def, -40, -2, -1);
       drawSharedSleepingEye(c, def, 40, -2, 1);
@@ -4089,7 +4814,10 @@
       }
     } else {
       const blinkAmount = st.wakeShockTimer > 0 ? 0 : st.blinkProgress > 0 ? Math.sin(st.blinkProgress) : 0;
-      if (hb < 0.5) {
+      if (bb > 0.14 && hb < 0.45) {
+        drawSharedAngryEye(c, def, -40, -3, -1, st.lookX, st.lookY, bb, blinkAmount);
+        drawSharedAngryEye(c, def, 40, -3, 1, st.lookX, st.lookY, bb, blinkAmount);
+      } else if (hb < 0.5) {
         const squint = Math.max(hb * 1.65, sb * 1.2, yb * 1.3);
         const shockScale = st.wakeShockTimer > 0 ? 1.12 : 1.0;
         c.save();
@@ -4111,7 +4839,7 @@
       c.fill();
     }
 
-    // 5. Mouth State Machine: Yawning 'O' | Happy Laugh / Treat Anticipation / Chewing | Calm ω Smile
+    // 5. Mouth State Machine: Yawning 'O' | Berserk Fang Snarl ("咬牙切齿") | Happy / Treat | Calm ω Smile
     if (yb > 0.16 && hb < 0.3) {
       // Cute sleepy oval 'O' yawn!
       const rx = 11 + yb * 6;
@@ -4137,6 +4865,8 @@
       c.lineWidth = 3.0;
       c.stroke();
       c.restore();
+    } else if (bb > 0.2 && hb < 0.35 && ab < 0.35 && chewActive <= 0) {
+      drawBerserkMouth(c, def, st, bb);
     } else {
       const openBlend = clamp(
         chewActive > 0 ? 0.32 + (chewPulse * 0.5 + 0.5) * 0.55 : Math.max(hb, ab * 0.95),
@@ -4254,13 +4984,17 @@
       c.restore();
     }
 
-    // 6. Sunny's Signature Mini White Bone (stays clenched at left mouth corner!)
+    // 6. Sunny's Signature Mini White Bone (clenched tightly & trembling furiously in Berserk Mode!)
     if (fSpec.mouthBone) {
-      const openRef = Math.max(hb, ab * 0.8);
+      const openRef = Math.max(hb, ab * 0.8, bb * 0.95);
+      const rageShake = bb > 0.15 ? Math.sin(inputState.time * 52) * 0.14 * bb : 0;
       const boneWiggle =
-        Math.sin(inputState.time * 4.2) * 0.06 + st.excitement * 0.14 + chewPulse * 0.12 * chewActive;
-      const boneX = lerp(-12, -23, openRef);
-      const boneY = lerp(31, 24, openRef);
+        Math.sin(inputState.time * 4.2) * 0.06 +
+        st.excitement * 0.14 +
+        chewPulse * 0.12 * chewActive +
+        rageShake;
+      const boneX = lerp(-12, bb > 0.25 ? -26 : -23, openRef);
+      const boneY = lerp(31, bb > 0.25 ? 29.5 : 24, openRef);
       c.save();
       c.translate(boneX, boneY);
       c.rotate(-0.46 + openRef * 0.1 + boneWiggle);
@@ -4336,6 +5070,11 @@
     c.ellipse(-3.6, 10.5, 3.8, 1.9, -0.28, 0, Math.PI * 2);
     c.fill();
 
+    // 8b. Angry Nostril / Cheek Steam Puffs ("气得冒白烟 😤")
+    if (bb > 0.3 && sb < 0.2) {
+      drawBerserkSteamPuffs(c, def, bb);
+    }
+
     // 9. Sleeping Snot Bubble (🫧 鼻涕泡 — expands & contracts with sleepy breath!)
     if (sb > 0.25) {
       const bubbleBreath = Math.sin(st.breathPhase * 0.75) * 0.5 + 0.5;
@@ -4366,47 +5105,26 @@
       c.restore();
     }
 
-    // 10. Turbo Typing Effort Sweat Drop (💦 on 30+ Combo!)
-    if (inputState.turboBlend > 0.06 && sb < 0.2) {
-      const swAlpha = inputState.turboBlend;
-      const swBob = Math.sin(inputState.time * 9 + def.phaseOffset) * 2.2;
-      c.save();
-      c.globalAlpha = swAlpha;
-      c.translate(68, -46 + swBob);
-      c.rotate(0.18);
-
-      c.beginPath();
-      c.moveTo(0, -9);
-      c.bezierCurveTo(6.5, -1, 7.5, 8, 0, 10.5);
-      c.bezierCurveTo(-7.5, 8, -6.5, -1, 0, -9);
-      c.closePath();
-      const sg = c.createLinearGradient(0, -9, 0, 11);
-      sg.addColorStop(0, '#E6F8FF');
-      sg.addColorStop(1, '#5CC4FF');
-      c.fillStyle = sg;
-      c.fill();
-      c.strokeStyle = '#2589D8';
-      c.lineWidth = 1.8;
-      c.stroke();
-
-      c.fillStyle = '#FFFFFF';
-      c.beginPath();
-      c.arc(-2.0, 4.0, 1.8, 0, Math.PI * 2);
-      c.fill();
-      c.restore();
-    }
-
     c.restore();
   }
 
-  function drawSharedHeadAndFace(c, def, st, bodyX, breath) {
+  function drawSharedHeadAndFace(c, def, st, bodyX, breath, isExport = false) {
     const hSpec = def.head;
     const sleepNod = st.sleepBlend * (10.5 + Math.sin(st.breathPhase * 0.75) * 4.2);
     const yawnLift = -st.yawnBlend * 5.5;
     const chewSquash = st.chewTimer > 0 ? Math.sin(inputState.time * 22) * 0.026 : 0;
+    const rageTremorX =
+      isExport || st.berserkBlend <= 0.1
+        ? 0
+        : Math.sin(inputState.time * 52 + def.phaseOffset) * 1.5 * st.berserkBlend;
+    const rageTremorY =
+      isExport || st.berserkBlend <= 0.1
+        ? 0
+        : Math.cos(inputState.time * 46 + def.phaseOffset * 1.4) * 1.0 * st.berserkBlend;
 
-    const headX = bodyX + st.lookX * 11;
-    const headY = -204 + breath * 0.85 + st.lookY * 6.5 - st.bounce * 4.5 + sleepNod + yawnLift;
+    const headX = bodyX + st.lookX * 11 + rageTremorX;
+    const headY =
+      -204 + breath * 0.85 + st.lookY * 6.5 - st.bounce * 4.5 + sleepNod + yawnLift + rageTremorY;
     const headTilt =
       def.baseTilt + st.leanX * 0.002 + st.lookX * 0.11 + st.sleepBlend * 0.055 - st.yawnBlend * 0.04;
 
@@ -4433,8 +5151,8 @@
     if (hSpec.earType === 'upright-shiba') {
       c.save();
       c.translate(-st.lookX * 5.5, -st.lookY * 3.2);
-      drawSharedUprightEar(c, def, -1, st.leftEarKick, 'stroke');
-      drawSharedUprightEar(c, def, 1, st.rightEarKick, 'stroke');
+      drawSharedUprightEar(c, def, -1, st.leftEarKick, 'stroke', st.berserkBlend);
+      drawSharedUprightEar(c, def, 1, st.rightEarKick, 'stroke', st.berserkBlend);
       c.restore();
     }
 
@@ -4455,8 +5173,8 @@
     if (hSpec.earType === 'upright-shiba') {
       c.save();
       c.translate(-st.lookX * 5.5, -st.lookY * 3.2);
-      drawSharedUprightEar(c, def, -1, st.leftEarKick, 'fill');
-      drawSharedUprightEar(c, def, 1, st.rightEarKick, 'fill');
+      drawSharedUprightEar(c, def, -1, st.leftEarKick, 'fill', st.berserkBlend);
+      drawSharedUprightEar(c, def, 1, st.rightEarKick, 'fill', st.berserkBlend);
       c.restore();
     }
 
@@ -4551,13 +5269,14 @@
     if (hSpec.earType === 'floppy') {
       c.save();
       c.translate(-st.lookX * 5.5, -st.lookY * 3.2);
-      drawSharedFloppyEar(c, def, -1, st.leftEarKick);
-      drawSharedFloppyEar(c, def, 1, st.rightEarKick);
+      drawSharedFloppyEar(c, def, -1, st.leftEarKick, st.berserkBlend);
+      drawSharedFloppyEar(c, def, 1, st.rightEarKick, st.berserkBlend);
       c.restore();
     }
 
-    // Unified Face Expression (Default Kuro calm <-> Petted Daisy happy laugh!)
+    // Unified Face Expression + Berserk Veins & Profuse Sweat Overlays
     drawSharedFaceExpression(c, def, st);
+    drawBerserkHeadOverlays(c, def, st);
 
     c.restore();
   }
@@ -5046,7 +5765,7 @@
 
     // 5. Neck Accessory + Head & Unified Expression
     drawSharedNeckAccessory(c, def, st, bodyX, breath);
-    drawSharedHeadAndFace(c, def, st, bodyX, breath);
+    drawSharedHeadAndFace(c, def, st, bodyX, breath, isExport);
 
     c.restore();
   }
@@ -5214,6 +5933,47 @@
       ctx.fillText('!!', 0, -28);
       ctx.restore();
     }
+
+    // Flying Berserk Sweat Droplets ("挥汗如雨" parabolic water droplets!)
+    for (const sw of inputState.sweatDrops) {
+      const t = sw.life / sw.maxLife;
+      const alpha = t < 0.14 ? t / 0.14 : 1 - easeOutCubic((t - 0.14) / 0.86);
+      const ang = Math.atan2(sw.vy, sw.vx) - Math.PI * 0.5;
+      const sz = sw.size * (1 - t * 0.25);
+
+      ctx.save();
+      ctx.translate(sw.x, sw.y);
+      ctx.rotate(ang);
+      ctx.globalAlpha = alpha * 0.94;
+
+      ctx.beginPath();
+      ctx.moveTo(0, -sz * 1.45);
+      ctx.bezierCurveTo(sz * 0.85, -sz * 0.15, sz * 0.98, sz * 1.0, 0, sz * 1.25);
+      ctx.bezierCurveTo(-sz * 0.98, sz * 1.0, -sz * 0.85, -sz * 0.15, 0, -sz * 1.45);
+      ctx.closePath();
+
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.92)';
+      ctx.lineWidth = 2.8;
+      ctx.lineJoin = 'round';
+      ctx.stroke();
+
+      const wg = ctx.createLinearGradient(0, -sz * 1.4, 0, sz * 1.25);
+      wg.addColorStop(0, '#F0FBFF');
+      wg.addColorStop(0.55, '#68CEFF');
+      wg.addColorStop(1, '#2694F0');
+      ctx.fillStyle = wg;
+      ctx.fill();
+
+      ctx.strokeStyle = '#1874C8';
+      ctx.lineWidth = 1.4;
+      ctx.stroke();
+
+      ctx.fillStyle = '#FFFFFF';
+      ctx.beginPath();
+      ctx.arc(-sz * 0.26, sz * 0.42, Math.max(1.0, sz * 0.24), 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
   }
 
   // Vector Treat Icons (Bone 🦴 / Jerky 🥩 / Cheese 🧀)
@@ -5353,8 +6113,8 @@
 
     const { w: stageW } = getStageDims();
     const cVal = inputState.displayCombo;
-    const isOverdrive = cVal >= 60;
-    const isTurbo = cVal >= 30;
+    const isOverdrive = cVal >= 45 || manualDogState === 'overdrive';
+    const isTurbo = cVal >= 25;
     const isWarm = cVal >= 10;
 
     const compactPet = IS_DESKTOP_PET && currentView !== 'all';
@@ -5411,9 +6171,9 @@
 
     const textColor = isWarm || isTurbo || isOverdrive ? '#FFFFFF' : isDarkTheme ? '#F8FAFC' : '#2C3545';
     const subText = isOverdrive
-      ? '🌈 OVERDRIVE 燃起来了!!'
+      ? '🌈 狂暴全开 · 怒目狂飙!!'
       : isTurbo
-        ? '🔥🔥 手速飞起 · 残影全开!'
+        ? '🔥💢 咬牙暴走 · 大汗淋漓!'
         : isWarm
           ? '⚡ 专注加速中!'
           : '连续敲键连击';
@@ -5611,7 +6371,7 @@
             inputState.idleTime = 0;
           }
 
-          if (p.in_pet_bounds) {
+          if (p.in_pet_bounds && manualDogState !== 'overdrive' && inputState.combo < 20) {
             const headHit = findHoveredHeadPlacement(inputState.pointerStageX, inputState.pointerStageY);
             if (headHit) {
               const st = headHit.placement.dog.state;
