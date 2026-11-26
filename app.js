@@ -770,7 +770,7 @@
         berserkBlend: 0,
         berserkChomp: 0,
         lastSweatAt: 0,
-        // Turbo paw afterimage trails (25+ Combo)
+        // Turbo paw afterimage trails (60+ Combo)
         pawTrails: [],
         leftPaw: {
           x: DOG_X - 35,
@@ -815,7 +815,7 @@
   let currentView = loadInitialView();
 
   function loadInitialView() {
-    const defaultView = 'sunny';
+    const defaultView = 'daisy';
     if (IS_DESKTOP_PET) {
       try {
         const savedView = localStorage.getItem('peng_pet_view');
@@ -1218,6 +1218,10 @@
     cancelActiveTreat();
   }
 
+  const ANGRY_COMBO_START = 30;
+  const OVERDRIVE_COMBO = 60;
+  const FULL_OVERDRIVE_COMBO = 90;
+
   function registerComboHit(isRepeat) {
     if (isRepeat) {
       if (inputState.time - inputState.lastRepeatComboAt < 0.085) return;
@@ -1228,14 +1232,14 @@
     inputState.comboTimer = inputState.comboMaxWindow;
     inputState.comboPop = 1.0;
 
-    if (inputState.combo >= 45) {
+    if (inputState.combo >= FULL_OVERDRIVE_COMBO) {
       inputState.shakeAmp = Math.min(3.5, inputState.shakeAmp + 2.2);
       for (const { dog } of getActivePlacements()) {
         if (dog.def.face.sunglasses && dog.state.glintProgress === 0) {
           dog.state.glintProgress = 0.01;
         }
       }
-    } else if (inputState.combo >= 25) {
+    } else if (inputState.combo >= OVERDRIVE_COMBO) {
       inputState.shakeAmp = Math.min(1.9, inputState.shakeAmp + 0.95);
     }
   }
@@ -1398,7 +1402,7 @@
 
   function getEffectiveDogState() {
     if (manualDogState !== 'normal') return manualDogState;
-    if (inputState.combo >= 25) return 'overdrive';
+    if (inputState.combo >= OVERDRIVE_COMBO) return 'overdrive';
     if (inputState.idleTime >= 12.0) return 'sleepy';
     return 'normal';
   }
@@ -1939,7 +1943,7 @@
 
     if (!useRight) {
       const lp = st.leftPaw;
-      if ((inputState.combo >= 24 || manualDogState === 'overdrive') && lp.isExtended) {
+      if ((inputState.combo >= OVERDRIVE_COMBO - 1 || manualDogState === 'overdrive') && lp.isExtended) {
         st.pawTrails.push({ x: lp.x, y: lp.y, alpha: 0.56 });
         if (st.pawTrails.length > 6) st.pawTrails.shift();
       }
@@ -1955,7 +1959,7 @@
       st.leftEarKick = 1;
     } else {
       const rp = st.rightPaw;
-      if ((inputState.combo >= 24 || manualDogState === 'overdrive') && rp.isExtended) {
+      if ((inputState.combo >= OVERDRIVE_COMBO - 1 || manualDogState === 'overdrive') && rp.isExtended) {
         st.pawTrails.push({ x: rp.x, y: rp.y, alpha: 0.56 });
         if (st.pawTrails.length > 6) st.pawTrails.shift();
       }
@@ -2031,8 +2035,8 @@
 
     if (!isRepeat && keyObj) {
       const placements = getActivePlacements();
-      const isHighCombo = inputState.combo >= 45 || manualDogState === 'overdrive';
-      const isBerserkCombo = inputState.combo >= 20 || manualDogState === 'overdrive';
+      const isHighCombo = inputState.combo >= FULL_OVERDRIVE_COMBO || manualDogState === 'overdrive';
+      const isBerserkCombo = inputState.combo >= ANGRY_COMBO_START || manualDogState === 'overdrive';
       const sparkColor = isHighCombo
         ? `hsl(${(inputState.time * 320) % 360}, 95%, 62%)`
         : '#FFB84D';
@@ -2056,9 +2060,9 @@
 
       playKeySound(keyObj.w >= 1.75);
       const comboSuffix =
-        inputState.combo >= 45
+        inputState.combo >= FULL_OVERDRIVE_COMBO
           ? ` · 🌈 ${inputState.combo} 连击 狂暴全开!!`
-          : inputState.combo >= 25
+          : inputState.combo >= OVERDRIVE_COMBO
             ? ` · 🔥 ${inputState.combo} 连击 暴走咬牙·大汗淋漓!`
             : inputState.combo >= 10
               ? ` · ⚡ ${inputState.combo} 连击!`
@@ -2534,10 +2538,10 @@
 
     const comboBerserkTarget = isForcedOverdrive
       ? 1
-      : inputState.combo >= 25
+      : inputState.combo >= OVERDRIVE_COMBO
         ? 1
-        : inputState.combo >= 14
-          ? clamp((inputState.combo - 13) / 12, 0, 1)
+        : inputState.combo >= ANGRY_COMBO_START
+          ? clamp((inputState.combo - ANGRY_COMBO_START + 1) / (OVERDRIVE_COMBO - ANGRY_COMBO_START + 1), 0, 1)
           : 0;
     inputState.berserkBlend = lerp(
       inputState.berserkBlend,
@@ -2546,11 +2550,11 @@
     );
     inputState.turboBlend = lerp(
       inputState.turboBlend,
-      isForcedOverdrive || inputState.combo >= 25 ? 1 : 0,
+      isForcedOverdrive || inputState.combo >= OVERDRIVE_COMBO ? 1 : 0,
       1 - Math.exp(-dt * 8)
     );
     const overdriveTarget =
-      isForcedOverdrive || inputState.combo >= 45 ? 1 : inputState.combo >= 25 ? 0.62 : 0;
+      isForcedOverdrive || inputState.combo >= FULL_OVERDRIVE_COMBO ? 1 : inputState.combo >= OVERDRIVE_COMBO ? 0.62 : 0;
     inputState.overdriveBlend = lerp(
       inputState.overdriveBlend,
       overdriveTarget,
@@ -2608,7 +2612,7 @@
       ? findFeedTargetPlacement(inputState.pointerStageX, inputState.pointerStageY)
       : null;
 
-    const pawFollow = 1 - Math.exp(-dt * (isForcedOverdrive || inputState.combo >= 25 ? 33 : 24));
+    const pawFollow = 1 - Math.exp(-dt * (isForcedOverdrive || inputState.combo >= OVERDRIVE_COMBO ? 33 : 24));
 
     for (const dogObj of dogsList) {
       const st = dogObj.state;
@@ -2708,7 +2712,7 @@
       if (isForcedDrool) st.excitement = Math.max(st.excitement, 0.55);
       if (isForcedOverdrive) st.excitement = Math.max(st.excitement, 0.88);
       if (inputState.combo >= 10) {
-        st.excitement = Math.max(st.excitement, clamp(inputState.combo / 45, 0.35, 1.0));
+        st.excitement = Math.max(st.excitement, clamp(inputState.combo / FULL_OVERDRIVE_COMBO, 0.35, 1.0));
       }
       st.excitement = Math.max(0, st.excitement - dt * 0.45);
       const tailSpeed = st.sleepBlend > 0.4 ? 1.4 : 4.5 + st.excitement * 12.5 + inputState.overdriveBlend * 5.0;
@@ -6214,8 +6218,8 @@
 
     const { w: stageW } = getStageDims();
     const cVal = inputState.displayCombo;
-    const isOverdrive = cVal >= 45 || manualDogState === 'overdrive';
-    const isTurbo = cVal >= 25;
+    const isOverdrive = cVal >= FULL_OVERDRIVE_COMBO || manualDogState === 'overdrive';
+    const isTurbo = cVal >= OVERDRIVE_COMBO;
     const isWarm = cVal >= 10;
 
     const compactPet = IS_DESKTOP_PET;

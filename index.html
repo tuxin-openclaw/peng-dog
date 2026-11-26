@@ -305,13 +305,13 @@
 <body class="theme-light">
   <header class="hud-top">
     <nav class="char-switcher" aria-label="切换小狗形象">
-      <button type="button" class="char-tab" data-view="daisy" aria-pressed="false">
+      <button type="button" class="char-tab is-active" data-view="daisy" aria-pressed="true">
         <span>🌼</span><span>蓝巾小柴</span>
       </button>
       <button type="button" class="char-tab" data-view="kuro" aria-pressed="false">
         <span>🖤</span><span>歪头黑柴</span>
       </button>
-      <button type="button" class="char-tab is-active" data-view="sunny" aria-pressed="true">
+      <button type="button" class="char-tab" data-view="sunny" aria-pressed="false">
         <span>🕶️</span><span>墨镜金毛</span>
       </button>
     </nav>
@@ -370,13 +370,13 @@
   <div class="pet-context-menu" id="webContextMenu" role="menu" aria-label="小狗互动菜单">
     <div class="ctx-group-title">切换小狗</div>
     <button type="button" class="ctx-item" data-cmd-action="set-view" data-cmd-val="daisy">
-      <span>🌼 蓝巾小柴</span><span class="ctx-check" data-chk-view="daisy"></span>
+      <span>🌼 蓝巾小柴</span><span class="ctx-check" data-chk-view="daisy">✓</span>
     </button>
     <button type="button" class="ctx-item" data-cmd-action="set-view" data-cmd-val="kuro">
       <span>🖤 歪头黑柴</span><span class="ctx-check" data-chk-view="kuro"></span>
     </button>
     <button type="button" class="ctx-item" data-cmd-action="set-view" data-cmd-val="sunny">
-      <span>🕶️ 墨镜金毛</span><span class="ctx-check" data-chk-view="sunny">✓</span>
+      <span>🕶️ 墨镜金毛</span><span class="ctx-check" data-chk-view="sunny"></span>
     </button>
     <div class="ctx-sep"></div>
     <div class="ctx-group-title">切换状态</div>

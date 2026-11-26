@@ -33,7 +33,7 @@ pub struct PetRuntimeState {
 impl Default for PetRuntimeState {
     fn default() -> Self {
         Self {
-            current_view: "sunny".to_string(),
+            current_view: "daisy".to_string(),
             desk_dir: "dog".to_string(),
             scale_pct: DEFAULT_SCALE,
             always_on_top: true,
@@ -49,9 +49,9 @@ impl Default for PetRuntimeState {
 struct ManagedApp {
     runtime: Arc<Mutex<PetRuntimeState>>,
     menu: Menu<Wry>,
-    view_sunny: CheckMenuItem<Wry>,
     view_daisy: CheckMenuItem<Wry>,
     view_kuro: CheckMenuItem<Wry>,
+    view_sunny: CheckMenuItem<Wry>,
     desk_user: CheckMenuItem<Wry>,
     desk_dog: CheckMenuItem<Wry>,
     chk_top: CheckMenuItem<Wry>,
@@ -69,9 +69,9 @@ impl ManagedApp {
     }
 
     fn sync_checkmarks(&self, st: &PetRuntimeState) {
-        let _ = self.view_sunny.set_checked(st.current_view == "sunny");
         let _ = self.view_daisy.set_checked(st.current_view == "daisy");
         let _ = self.view_kuro.set_checked(st.current_view == "kuro");
+        let _ = self.view_sunny.set_checked(st.current_view == "sunny");
 
         let _ = self.desk_user.set_checked(st.desk_dir != "dog");
         let _ = self.desk_dog.set_checked(st.desk_dir == "dog");
@@ -427,8 +427,8 @@ fn build_shared_menu(app: &AppHandle) -> tauri::Result<ManagedApp> {
         ..PetRuntimeState::default()
     }));
 
-    let view_sunny = CheckMenuItem::with_id(app, "view:sunny", "🕶️ 墨镜金毛", true, true, None::<&str>)?;
-    let view_daisy = CheckMenuItem::with_id(app, "view:daisy", "🌼 蓝巾小柴", true, false, None::<&str>)?;
+    let view_sunny = CheckMenuItem::with_id(app, "view:sunny", "🕶️ 墨镜金毛", true, false, None::<&str>)?;
+    let view_daisy = CheckMenuItem::with_id(app, "view:daisy", "🌼 蓝巾小柴", true, true, None::<&str>)?;
     let view_kuro = CheckMenuItem::with_id(app, "view:kuro", "🖤 歪头黑柴", true, false, None::<&str>)?;
 
     let feed_bone = MenuItem::with_id(app, "feed:bone", "🦴 喂香脆肉骨头", true, None::<&str>)?;
@@ -508,9 +508,9 @@ fn build_shared_menu(app: &AppHandle) -> tauri::Result<ManagedApp> {
     let menu = Menu::with_items(
         app,
         &[
-            &view_sunny,
             &view_daisy,
             &view_kuro,
+            &view_sunny,
             &sep1,
             &feed_submenu,
             &act_pet,
@@ -535,9 +535,9 @@ fn build_shared_menu(app: &AppHandle) -> tauri::Result<ManagedApp> {
     let menu = Menu::with_items(
         app,
         &[
-            &view_sunny,
             &view_daisy,
             &view_kuro,
+            &view_sunny,
             &sep1,
             &feed_submenu,
             &act_pet,
@@ -562,9 +562,9 @@ fn build_shared_menu(app: &AppHandle) -> tauri::Result<ManagedApp> {
     Ok(ManagedApp {
         runtime,
         menu,
-        view_sunny,
         view_daisy,
         view_kuro,
+        view_sunny,
         desk_user,
         desk_dog,
         chk_top,
