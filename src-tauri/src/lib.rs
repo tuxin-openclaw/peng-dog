@@ -1,12 +1,13 @@
 mod input_hook;
 
+use auto_launch::{AutoLaunch, AutoLaunchBuilder};
 use serde::Serialize;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::image::Image;
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
-use tauri::tray::TrayIconBuilder;
+use tauri::tray::{MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{
     AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, PhysicalPosition, State,
     WebviewUrl, WebviewWindow, WebviewWindowBuilder, Wry,
@@ -58,6 +59,8 @@ struct ManagedApp {
     chk_pass: CheckMenuItem<Wry>,
     chk_sound: CheckMenuItem<Wry>,
     chk_popups: CheckMenuItem<Wry>,
+    chk_autostart: CheckMenuItem<Wry>,
+    autostart: Option<AutoLaunch>,
 }
 
 impl ManagedApp {
@@ -81,12 +84,52 @@ impl ManagedApp {
         let _ = self.chk_sound.set_checked(st.sound_enabled);
         let _ = self.chk_popups.set_checked(st.show_popups);
     }
+
+    fn sync_autostart_checkmark(&self) {
+        if let Some(autostart) = &self.autostart {
+            match autostart.is_enabled() {
+                Ok(enabled) => {
+                    let _ = self.chk_autostart.set_checked(enabled);
+                }
+                Err(err) => eprintln!("读取开机启动设置失败：{err}"),
+            }
+        }
+    }
 }
 
 #[derive(Clone, Serialize)]
 struct FrontendMenuPayload<'a> {
     action: &'a str,
     value: &'a str,
+}
+
+fn build_autostart(app: &AppHandle) -> auto_launch::Result<AutoLaunch> {
+    let mut builder = AutoLaunchBuilder::new();
+    builder.set_app_name(&app.package_info().name);
+
+    #[cfg(target_os = "macos")]
+    {
+        use auto_launch::{Error, MacOSLaunchMode};
+
+        builder.set_macos_launch_mode(MacOSLaunchMode::SMAppService);
+        match builder.build() {
+            Err(Error::UnsupportedOS) => {
+                builder.set_macos_launch_mode(MacOSLaunchMode::LaunchAgent);
+            }
+            result => return result,
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    builder.set_windows_enable_mode(auto_launch::WindowsEnableMode::CurrentUser);
+
+    let executable = std::env::current_exe()?;
+    #[cfg(target_os = "windows")]
+    let path = format!("\"{}\"", executable.display());
+    #[cfg(not(target_os = "windows"))]
+    let path = executable.to_string_lossy();
+
+    builder.set_app_path(&path).build()
 }
 
 fn target_logical_size(scale_pct: u32) -> (f64, f64) {
@@ -226,6 +269,7 @@ fn show_pet_context_menu(win: WebviewWindow, managed: State<'_, ManagedApp>) -> 
     }) {
         managed.sync_checkmarks(&st);
     }
+    managed.sync_autostart_checkmark();
     let _ = win.set_ignore_cursor_events(false);
     win.popup_menu(&managed.menu).map_err(|e| e.to_string())
 }
@@ -400,6 +444,23 @@ fn handle_menu_command(app: &AppHandle, id: &str) {
                 );
             }
         }
+        "toggle:autostart" => {
+            let Some(autostart) = &managed.autostart else {
+                return;
+            };
+            let result = autostart.is_enabled().and_then(|enabled| {
+                if enabled {
+                    autostart.disable()
+                } else {
+                    autostart.enable()
+                }
+            });
+            managed.sync_autostart_checkmark();
+            if let Err(err) = result {
+                eprintln!("更新开机启动设置失败：{err}");
+                let _ = app.emit_to("main", "pet-autostart-error", ());
+            }
+        }
         "window:reset_pos" => {
             let Some(w) = &win else { return };
             let Some(st) = managed.update_runtime(|st| st.passthrough_locked = false) else {
@@ -487,6 +548,21 @@ fn build_shared_menu(app: &AppHandle) -> tauri::Result<ManagedApp> {
         true,
         None::<&str>,
     )?;
+    let autostart = if tauri::is_dev() {
+        None
+    } else {
+        build_autostart(app)
+            .map_err(|err| eprintln!("初始化开机启动设置失败：{err}"))
+            .ok()
+    };
+    let chk_autostart = CheckMenuItem::with_id(
+        app,
+        "toggle:autostart",
+        "开机启动",
+        autostart.is_some(),
+        false,
+        None::<&str>,
+    )?;
 
     let win_reset = MenuItem::with_id(app, "window:reset_pos", "📍 重置到屏幕右下角", true, None::<&str>)?;
     let act_export = MenuItem::with_id(app, "action:export", "📸 导出透明 PNG", true, None::<&str>)?;
@@ -522,6 +598,7 @@ fn build_shared_menu(app: &AppHandle) -> tauri::Result<ManagedApp> {
             &chk_pass,
             &chk_sound,
             &chk_popups,
+            &chk_autostart,
             &sep3,
             &win_reset,
             &act_export,
@@ -549,6 +626,7 @@ fn build_shared_menu(app: &AppHandle) -> tauri::Result<ManagedApp> {
             &chk_pass,
             &chk_sound,
             &chk_popups,
+            &chk_autostart,
             &sep3,
             &win_reset,
             &act_export,
@@ -571,6 +649,8 @@ fn build_shared_menu(app: &AppHandle) -> tauri::Result<ManagedApp> {
         chk_pass,
         chk_sound,
         chk_popups,
+        chk_autostart,
+        autostart,
     })
 }
 
@@ -597,6 +677,7 @@ pub fn run() {
 
             let handle = app.handle().clone();
             let managed = build_shared_menu(&handle)?;
+            managed.sync_autostart_checkmark();
             let runtime_arc = managed.runtime.clone();
 
             // Build macOS Top Menu Bar Icon / Windows System Tray Icon with left-click dropdown!
@@ -611,6 +692,20 @@ pub fn run() {
                 .tooltip("PengDog 小狗桌宠 · 点击选择功能")
                 .menu(&managed.menu)
                 .show_menu_on_left_click(true)
+                .on_tray_icon_event(|tray, event| {
+                    if matches!(
+                        event,
+                        TrayIconEvent::Enter { .. }
+                            | TrayIconEvent::Click {
+                                button_state: MouseButtonState::Down,
+                                ..
+                            }
+                    ) {
+                        if let Some(managed) = tray.app_handle().try_state::<ManagedApp>() {
+                            managed.sync_autostart_checkmark();
+                        }
+                    }
+                })
                 .build(app)?;
 
             if let Some(win) = app.get_webview_window("main") {

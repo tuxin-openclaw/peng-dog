@@ -5989,20 +5989,24 @@
       ctx.restore();
     }
 
+    const { h: stageH } = getStageDims();
+    const badgeHeight = 24;
+    const badgeDrift = 16;
+    // Leave room for the border and the pop animation's overshoot.
+    const maxBadgeStartY = stageH - badgeHeight * 0.5 - badgeDrift - 4;
     for (const b of inputState.mouseBadges) {
       const t = b.life / b.maxLife;
       const pop = t < 0.2 ? easeOutBack(t / 0.2) : 1;
       const fade = t > 0.42 ? 1 - easeOutCubic((t - 0.42) / 0.58) : 1;
-      const drift = easeOutCubic(t) * 16;
+      const y = Math.min(b.y, maxBadgeStartY) + easeOutCubic(t) * badgeDrift;
 
       ctx.save();
-      ctx.translate(b.x, b.y + drift);
+      ctx.translate(b.x, y);
       ctx.scale(pop, pop);
       ctx.globalAlpha = fade;
 
       const bw = Math.max(48, b.text.length * 13 + 18);
-      const bh = 24;
-      roundRectPath(ctx, -bw * 0.5, -bh * 0.5, bw, bh, 12);
+      roundRectPath(ctx, -bw * 0.5, -badgeHeight * 0.5, bw, badgeHeight, badgeHeight * 0.5);
       ctx.fillStyle = b.color;
       ctx.fill();
       ctx.strokeStyle = 'rgba(255, 255, 255, 0.92)';
@@ -6504,6 +6508,10 @@
     tauriListen('pet-menu-command', (ev) => {
       const p = ev && ev.payload ? ev.payload : {};
       executeMenuCommand(p.action, p.value || '');
+    });
+
+    tauriListen('pet-autostart-error', () => {
+      window.alert('无法更改开机启动设置，请在系统的登录项或启动应用设置中查看 PengDog。');
     });
 
     tauriListen('global-input', (ev) => {
