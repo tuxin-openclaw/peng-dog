@@ -63,7 +63,20 @@
       display: none !important;
     }
 
+    #backdropCanvas {
+      position: absolute;
+      inset: 0;
+      width: 100vw;
+      height: 100vh;
+      pointer-events: none;
+    }
+
+    .is-desktop-pet #backdropCanvas {
+      display: none;
+    }
+
     #petCanvas {
+      position: relative;
       display: block;
       width: 100vw;
       height: 100vh;
@@ -364,6 +377,7 @@
     </div>
   </header>
 
+  <canvas id="backdropCanvas" aria-hidden="true"></canvas>
   <canvas id="petCanvas"></canvas>
 
   <!-- Shared Web Right-Click Dropdown Menu (mirrors Tauri native menu commands) -->

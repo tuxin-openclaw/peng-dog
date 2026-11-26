@@ -49,9 +49,8 @@
   let manualDogState = 'normal'; // 'normal' | 'happy' | 'drool' | 'sleepy' | 'overdrive'
   let lastSyncedUiState = 'normal';
 
-  function getStageDims() {
-    return IS_DESKTOP_PET ? { w: 430, h: 525 } : { w: 1320, h: 700 };
-  }
+  const stage = IS_DESKTOP_PET ? { w: 430, h: 525 } : { w: 1320, h: 700 };
+  const backdrop = IS_DESKTOP_PET ? null : document.getElementById('backdropCanvas').getContext('2d');
 
   const viewport = {
     cssW: window.innerWidth,
@@ -67,10 +66,18 @@
     viewport.cssH = Math.max(1, window.innerHeight);
     viewport.dpr = Math.min(window.devicePixelRatio || 1, 2.5);
 
-    canvas.width = Math.round(viewport.cssW * viewport.dpr);
-    canvas.height = Math.round(viewport.cssH * viewport.dpr);
+    restingKeycaps = null;
+    const width = Math.round(viewport.cssW * viewport.dpr);
+    const height = Math.round(viewport.cssH * viewport.dpr);
+    if (canvas.width !== width) canvas.width = width;
+    if (canvas.height !== height) canvas.height = height;
+    if (backdrop) {
+      if (backdrop.canvas.width !== width) backdrop.canvas.width = width;
+      if (backdrop.canvas.height !== height) backdrop.canvas.height = height;
+      drawBackdropFullViewport();
+    }
 
-    const { w: stageW, h: stageH } = getStageDims();
+    const { w: stageW, h: stageH } = stage;
     const padX = IS_DESKTOP_PET ? 4 : 20;
     const padTop = IS_DESKTOP_PET ? 4 : 60;
     const padBottom = IS_DESKTOP_PET ? 4 : 50;
@@ -342,14 +349,14 @@
         tctx.lineTo(x + len * 0.5, y - len * 0.32);
         tctx.stroke();
       }
-      return ctx.createPattern(tile, 'repeat');
+      return backdrop.createPattern(tile, 'repeat');
     };
 
     crayonLightPattern = makeTile('rgba(134, 184, 240, 0.14)', 'rgba(255, 255, 255, 0.28)');
     crayonDarkPattern = makeTile('rgba(128, 174, 232, 0.05)', 'rgba(255, 255, 255, 0.025)');
   }
 
-  initPatterns();
+  if (backdrop) initPatterns();
 
   // =========================================================================
   // Web Audio Synthesizer
@@ -657,6 +664,8 @@
 
   const keysList = [];
   const keyByCode = new Map();
+  const animatedKeys = new Set();
+  let restingKeycaps = null;
 
   function kbToUnitLocal(kx, ky) {
     const cos = Math.cos(KB_LOCAL.angle);
@@ -674,6 +683,8 @@
     }
     keysList.length = 0;
     keyByCode.clear();
+    animatedKeys.clear();
+    restingKeycaps = null;
 
     const innerW = KB_LOCAL.w - KB_LOCAL.padX * 2;
     const innerH = KB_LOCAL.h - KB_LOCAL.padY * 2;
@@ -699,7 +710,16 @@
         const { ux, uy } = kbToUnitLocal(lcx, lcy);
         const old = prevState.get(spec.code);
 
+        const sidePath = new Path2D();
+        const topPath = new Path2D();
+        const capH = Math.max(5.5, rowH - 2.6);
+        appendRoundRect(sidePath, lx, ly + 1.2, kw, rowH - 0.4, 3.4);
+        appendRoundRect(topPath, lx + 0.3, ly, kw - 0.6, capH, 3);
+
         const keyObj = {
+          sidePath,
+          topPath,
+          capH,
           ...spec,
           effectiveHand,
           lx,
@@ -714,6 +734,7 @@
           press: old ? old.press : 0,
           glow: old ? old.glow : 0,
         };
+        if (keyObj.isDown || keyObj.press || keyObj.glow) animatedKeys.add(keyObj);
         keysList.push(keyObj);
         keyByCode.set(keyObj.code, keyObj);
         curX += kw + KB_LOCAL.gap;
@@ -917,9 +938,8 @@
     return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2);
   }
 
-  function roundRectPath(c, x, y, w, h, r) {
+  function appendRoundRect(c, x, y, w, h, r) {
     const rad = Math.min(r, w * 0.5, h * 0.5);
-    c.beginPath();
     c.moveTo(x + rad, y);
     c.arcTo(x + w, y, x + w, y + h, rad);
     c.arcTo(x + w, y + h, x, y + h, rad);
@@ -928,19 +948,21 @@
     c.closePath();
   }
 
-  function getActivePlacements() {
-    const { w: stageW } = getStageDims();
-    return [{
-      dog: dogsById.get(currentView),
-      cx: stageW * 0.5,
-      baseY: IS_DESKTOP_PET ? 412 : 446,
-      scale: IS_DESKTOP_PET ? 0.98 : 1.16,
-    }];
+  function roundRectPath(c, x, y, w, h, r) {
+    c.beginPath();
+    appendRoundRect(c, x, y, w, h, r);
   }
+
+  const activePlacements = [{
+    dog: dogsById.get(currentView),
+    cx: stage.w * 0.5,
+    baseY: IS_DESKTOP_PET ? 412 : 446,
+    scale: IS_DESKTOP_PET ? 0.98 : 1.16,
+  }];
 
   // Hit-test if stage coordinates (sx, sy) are over any puppy's head or body
   function findHoveredPuppyPlacement(sx, sy) {
-    for (const p of getActivePlacements()) {
+    for (const p of activePlacements) {
       const st = p.dog.state;
       const cx = p.cx + (DOG_X + st.leanX) * p.scale;
       const cy = p.baseY + PUPPY_BODY_BOUNDS.centerY * p.scale;
@@ -962,7 +984,7 @@
 
   // Hit-test if stage coordinates (sx, sy) are over a puppy's head (for 摸摸头!)
   function findHoveredHeadPlacement(sx, sy) {
-    for (const p of getActivePlacements()) {
+    for (const p of activePlacements) {
       const st = p.dog.state;
       const hx = p.cx + (DOG_X + st.leanX + st.lookX * 11) * p.scale;
       const hy = p.baseY + (-204 + st.lookY * 6.5) * p.scale;
@@ -1067,7 +1089,7 @@
   // Locate closest puppy's mouth/face for treat feeding & anticipation
   function findFeedTargetPlacement(sx, sy) {
     let best = null;
-    for (const p of getActivePlacements()) {
+    for (const p of activePlacements) {
       const st = p.dog.state;
       const mx = p.cx + (DOG_X + st.leanX + st.lookX * 14) * p.scale;
       const my = p.baseY + (-178 + st.lookY * 9) * p.scale;
@@ -1102,7 +1124,7 @@
     if (!IS_DESKTOP_PET) {
       return { x: inputState.pointerStageX, y: inputState.pointerStageY };
     }
-    const { w: stageW, h: stageH } = getStageDims();
+    const { w: stageW, h: stageH } = stage;
     return {
       x: clamp(inputState.pointerStageX, 46, stageW - 46),
       y: clamp(inputState.pointerStageY, 54, stageH - 46),
@@ -1141,7 +1163,7 @@
     if (!wasIdle) return false;
 
     let poppedAnyBubble = false;
-    for (const p of getActivePlacements()) {
+    for (const p of activePlacements) {
       const st = p.dog.state;
       if (st.sleepBlend > 0.28 && isSuddenAction) {
         poppedAnyBubble = true;
@@ -1234,7 +1256,7 @@
 
     if (inputState.combo >= FULL_OVERDRIVE_COMBO) {
       inputState.shakeAmp = Math.min(3.5, inputState.shakeAmp + 2.2);
-      for (const { dog } of getActivePlacements()) {
+      for (const { dog } of activePlacements) {
         if (dog.def.face.sunglasses && dog.state.glintProgress === 0) {
           dog.state.glintProgress = 0.01;
         }
@@ -1288,8 +1310,8 @@
       }
     }
 
-    const { w: stageW } = getStageDims();
-    const [anchorPlacement] = getActivePlacements();
+    const { w: stageW } = stage;
+    const [anchorPlacement] = activePlacements;
     const keyUX = keyObj ? keyObj.ux : KB_LOCAL.cx;
     const keyUY = keyObj ? keyObj.uy : KB_LOCAL.cy;
     const startPos = unitToStage(anchorPlacement, keyUX, keyUY - 8);
@@ -1531,6 +1553,7 @@
     const activeDog = dogsById.get(viewId);
     if (!activeDog) return;
     currentView = viewId;
+    activePlacements[0].dog = activeDog;
     if (IS_DESKTOP_PET) {
       try {
         localStorage.setItem('peng_pet_view', viewId);
@@ -1544,7 +1567,7 @@
     }
     syncSoundAndMenuCheckmarks();
 
-    for (const { dog } of getActivePlacements()) {
+    for (const { dog } of activePlacements) {
       dog.state.bounce = 0.85;
       dog.state.leftEarKick = 0.85;
       dog.state.rightEarKick = 0.85;
@@ -1614,9 +1637,8 @@
       wakeFromIdle(stateId === 'normal' || stateId === 'overdrive');
     }
 
-    const placements = getActivePlacements();
     if (stateId === 'normal') {
-      for (const { dog } of placements) {
+      for (const { dog } of activePlacements) {
         dog.state.bounce = Math.max(dog.state.bounce, 0.72);
         dog.state.leftEarKick = Math.max(dog.state.leftEarKick, 0.65);
         dog.state.rightEarKick = Math.max(dog.state.rightEarKick, 0.65);
@@ -1625,7 +1647,7 @@
         statusHintEl.textContent = '已切回「默认」状态 · 正常响应键鼠与摸头，静置 15 秒自动犯困 🐶';
       }
     } else if (stateId === 'happy') {
-      for (const p of placements) {
+      for (const p of activePlacements) {
         const st = p.dog.state;
         const hx = p.cx + (DOG_X + st.leanX) * p.scale;
         const hy = p.baseY - 204 * p.scale;
@@ -1644,7 +1666,7 @@
         statusHintEl.textContent = '已切换「开心」状态 · 弯弯笑眼吐舌大笑，摇尾巴超开心 💕';
       }
     } else if (stateId === 'drool') {
-      for (const { dog } of placements) {
+      for (const { dog } of activePlacements) {
         const st = dog.state;
         st.bounce = 0.85;
         st.leftEarKick = 0.85;
@@ -1658,7 +1680,7 @@
       }
     } else if (stateId === 'overdrive') {
       inputState.shakeAmp = Math.max(inputState.shakeAmp, 2.5);
-      for (const p of placements) {
+      for (const p of activePlacements) {
         const st = p.dog.state;
         const hx = p.cx + (DOG_X + st.leanX) * p.scale;
         const hy = p.baseY - 204 * p.scale;
@@ -1669,7 +1691,7 @@
         st.berserkChomp = 1.0;
         if (p.dog.def.face.sunglasses) st.glintProgress = 0.01;
         spawnSparkles(hx, p.baseY - 190 * p.scale, '#FF8F2B', 8);
-        spawnSweatBurst(hx, hy, p.scale, placements.length > 1 ? 3 : 6);
+        spawnSweatBurst(hx, hy, p.scale, activePlacements.length > 1 ? 3 : 6);
       }
       playKeySound(true);
       if (statusHintEl) {
@@ -1696,7 +1718,7 @@
 
     wakeFromIdle(false);
     if (!inputState.pointerInWindow) {
-      const { w: stageW } = getStageDims();
+      const { w: stageW } = stage;
       inputState.pointerStageX = stageW * 0.5;
       inputState.pointerStageY = 82;
     }
@@ -1710,7 +1732,7 @@
       pickedStamp: performance.now(),
     };
 
-    for (const { dog } of getActivePlacements()) {
+    for (const { dog } of activePlacements) {
       const st = dog.state;
       st.bounce = 0.85;
       st.leftEarKick = 0.88;
@@ -1736,7 +1758,7 @@
 
   function petActivePuppiesDirect() {
     wakeFromIdle(false);
-    for (const p of getActivePlacements()) {
+    for (const p of activePlacements) {
       const st = p.dog.state;
       const hx = p.cx + (DOG_X + st.leanX) * p.scale;
       const hy = p.baseY - 204 * p.scale;
@@ -1805,6 +1827,7 @@
       case 'toggle-theme':
         isDarkTheme = !isDarkTheme;
         syncThemeUI();
+        if (backdrop) drawBackdropFullViewport();
         drawScene();
         break;
       case 'export-png':
@@ -2024,6 +2047,7 @@
     if (keyObj) {
       keyObj.isDown = true;
       keyObj.glow = 1;
+      animatedKeys.add(keyObj);
     }
 
     inputState.activeCodes.add(code);
@@ -2034,13 +2058,12 @@
     spawnOrPulseKeyPopup(code, keyObj, displayInfo, isRepeat);
 
     if (!isRepeat && keyObj) {
-      const placements = getActivePlacements();
       const isHighCombo = inputState.combo >= FULL_OVERDRIVE_COMBO || manualDogState === 'overdrive';
       const isBerserkCombo = inputState.combo >= ANGRY_COMBO_START || manualDogState === 'overdrive';
       const sparkColor = isHighCombo
         ? `hsl(${(inputState.time * 320) % 360}, 95%, 62%)`
         : '#FFB84D';
-      for (const p of placements) {
+      for (const p of activePlacements) {
         animateDogKeyPress(p.dog, keyObj, code);
         const pos = unitToStage(p, keyObj.ux, keyObj.uy);
         spawnRipple(
@@ -2054,7 +2077,7 @@
           const st = p.dog.state;
           const hx = p.cx + (DOG_X + st.leanX + st.lookX * 11) * p.scale;
           const hy = p.baseY - 204 * p.scale;
-          spawnSweatBurst(hx, hy, p.scale, placements.length > 1 ? 2 : 3);
+          spawnSweatBurst(hx, hy, p.scale, activePlacements.length > 1 ? 2 : 3);
         }
       }
 
@@ -2182,11 +2205,10 @@
   }
 
   function triggerDeskMouseClickVisual(button) {
-    const placements = getActivePlacements();
     const mouseLeft = isMouseOnLeft();
     const mSign = mouseLeft ? -1 : 1;
 
-    for (const p of placements) {
+    for (const p of activePlacements) {
       const st = p.dog.state;
       if (mouseLeft) st.leftEarKick = 0.95;
       else st.rightEarKick = 0.95;
@@ -2197,7 +2219,7 @@
     if (button === 0) {
       inputState.leftDown = true;
       inputState.leftGlow = 1;
-      for (const p of placements) {
+      for (const p of activePlacements) {
         const mPos = unitToStage(p, inputState.mouseLX - 11 * mSign, inputState.mouseLY - 14 * mSign);
         spawnRipple(mPos.sx, mPos.sy, '#FF7849', 34 * p.scale);
         spawnSparkles(mPos.sx, mPos.sy, '#FF7849', 5);
@@ -2208,7 +2230,7 @@
     } else if (button === 2) {
       inputState.rightDown = true;
       inputState.rightGlow = 1;
-      for (const p of placements) {
+      for (const p of activePlacements) {
         const mPos = unitToStage(p, inputState.mouseLX + 11 * mSign, inputState.mouseLY - 14 * mSign);
         spawnRipple(mPos.sx, mPos.sy, '#38BDF8', 34 * p.scale);
         spawnSparkles(mPos.sx, mPos.sy, '#38BDF8', 5);
@@ -2219,7 +2241,7 @@
     } else if (button === 1) {
       inputState.middleDown = true;
       inputState.middleGlow = 1;
-      for (const p of placements) {
+      for (const p of activePlacements) {
         const mPos = unitToStage(p, inputState.mouseLX, inputState.mouseLY - 14 * mSign);
         spawnRipple(mPos.sx, mPos.sy, '#A78BFA', 30 * p.scale);
         spawnMouseBadge(mPos.sx, mPos.sy + 58 * p.scale, '中键', '#8B5CF6');
@@ -2466,7 +2488,7 @@
   });
 
   function exportTransparentPNG() {
-    const { w: stageW, h: stageH } = getStageDims();
+    const { w: stageW, h: stageH } = stage;
     const offCanvas = document.createElement('canvas');
     const exportScale = 2;
     offCanvas.width = stageW * exportScale;
@@ -2475,7 +2497,7 @@
     if (!octx) return;
 
     octx.scale(exportScale, exportScale);
-    for (const p of getActivePlacements()) {
+    for (const p of activePlacements) {
       drawPuppyWorkstation(octx, p, true);
     }
 
@@ -2593,13 +2615,16 @@
       globalSleepTarget = 1;
     }
 
-    for (const k of keysList) {
-      k.press = lerp(k.press, k.isDown ? 1 : 0, 1 - Math.exp(-dt * 30));
+    const keyFollow = 1 - Math.exp(-dt * 30);
+    for (const k of animatedKeys) {
+      k.press = lerp(k.press, k.isDown ? 1 : 0, keyFollow);
       k.glow = k.isDown ? 1 : Math.max(0, k.glow - dt * 3.4);
+      if (!k.isDown && k.glow === 0 && k.press < Number.EPSILON) {
+        k.press = 0;
+        animatedKeys.delete(k);
+      }
     }
 
-    const activePlacements = getActivePlacements();
-    const placementById = new Map(activePlacements.map((p) => [p.dog.id, p]));
     const hoveredHead =
       inputState.pointerInWindow &&
       !inputState.activeTreat &&
@@ -2612,11 +2637,12 @@
       ? findFeedTargetPlacement(inputState.pointerStageX, inputState.pointerStageY)
       : null;
 
+    const [visiblePlacement] = activePlacements;
     const pawFollow = 1 - Math.exp(-dt * (isForcedOverdrive || inputState.combo >= OVERDRIVE_COMBO ? 33 : 24));
 
     for (const dogObj of dogsList) {
       const st = dogObj.state;
-      const placement = placementById.get(dogObj.id);
+      const placement = dogObj === visiblePlacement.dog ? visiblePlacement : null;
 
       // Chew & Wake Shock timers
       st.chewTimer = Math.max(0, st.chewTimer - dt);
@@ -2984,21 +3010,18 @@
     const w = viewport.cssW;
     const h = viewport.cssH;
 
-    if (IS_DESKTOP_PET) {
-      ctx.clearRect(0, 0, w, h);
-      return;
-    }
+    backdrop.setTransform(viewport.dpr, 0, 0, viewport.dpr, 0, 0);
 
     if (isDarkTheme) {
-      const grad = ctx.createRadialGradient(w * 0.5, h * 0.45, 40, w * 0.5, h * 0.5, Math.max(w, h) * 0.78);
+      const grad = backdrop.createRadialGradient(w * 0.5, h * 0.45, 40, w * 0.5, h * 0.5, Math.max(w, h) * 0.78);
       grad.addColorStop(0, '#252E3F');
       grad.addColorStop(0.6, '#1B2230');
       grad.addColorStop(1, '#131822');
-      ctx.fillStyle = grad;
-      ctx.fillRect(0, 0, w, h);
+      backdrop.fillStyle = grad;
+      backdrop.fillRect(0, 0, w, h);
       if (crayonDarkPattern) {
-        ctx.fillStyle = crayonDarkPattern;
-        ctx.fillRect(0, 0, w, h);
+        backdrop.fillStyle = crayonDarkPattern;
+        backdrop.fillRect(0, 0, w, h);
       }
       return;
     }
@@ -3008,16 +3031,16 @@
       ? activeDog.def.backdrop
       : { c0: '#FCFDFE', c1: '#EDF4FC', c2: '#DCE9F8', crayon: true };
 
-    const grad = ctx.createRadialGradient(w * 0.5, h * 0.44, 40, w * 0.5, h * 0.5, Math.max(w, h) * 0.82);
+    const grad = backdrop.createRadialGradient(w * 0.5, h * 0.44, 40, w * 0.5, h * 0.5, Math.max(w, h) * 0.82);
     grad.addColorStop(0, bd.c0);
     grad.addColorStop(0.6, bd.c1);
     grad.addColorStop(1, bd.c2);
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, w, h);
+    backdrop.fillStyle = grad;
+    backdrop.fillRect(0, 0, w, h);
 
     if (crayonLightPattern && bd.crayon) {
-      ctx.fillStyle = crayonLightPattern;
-      ctx.fillRect(0, 0, w, h);
+      backdrop.fillStyle = crayonLightPattern;
+      backdrop.fillRect(0, 0, w, h);
     }
   }
 
@@ -5466,7 +5489,6 @@
       c.restore();
     }
 
-    roundRectPath(c, k.lx, k.ly + 1.2, k.w, k.h - 0.4, 3.4);
     c.fillStyle =
       glow > 0.12
         ? od > 0.2
@@ -5477,12 +5499,12 @@
           : k.accent
             ? '#D47F22'
             : dt.capSide;
-    c.fill();
+    c.fill(k.sidePath);
 
-    const capH = Math.max(5.5, k.h - 2.6);
-    roundRectPath(c, k.lx + 0.3, k.ly + pressOffset, k.w - 0.6, capH, 3.0);
+    const capH = k.capH;
+    if (pressOffset) c.translate(0, pressOffset);
     if (glow > 0.06) {
-      const g = c.createLinearGradient(k.lx, k.ly + pressOffset, k.lx, k.ly + pressOffset + capH);
+      const g = c.createLinearGradient(k.lx, k.ly, k.lx, k.ly + capH);
       if (od > 0.2) {
         g.addColorStop(0, `hsl(${rgbHue}, 98%, 78%)`);
         g.addColorStop(1, `hsl(${(rgbHue + 28) % 360}, 92%, 56%)`);
@@ -5494,14 +5516,14 @@
     } else if (od > 0.08) {
       c.fillStyle = `hsl(${rgbHue}, 90%, 91%)`;
     } else if (k.accent) {
-      const ag = c.createLinearGradient(k.lx, k.ly, k.lx, k.ly + capH);
+      const ag = c.createLinearGradient(k.lx, k.ly - pressOffset, k.lx, k.ly - pressOffset + capH);
       ag.addColorStop(0, dt.accentTop1);
       ag.addColorStop(1, dt.accentTop2);
       c.fillStyle = ag;
     } else {
       c.fillStyle = dt.capTop;
     }
-    c.fill();
+    c.fill(k.topPath);
 
     if (k.label) {
       const fontSize = k.label.length >= 4 ? 5.6 : k.label.length >= 2 ? 6.2 : 7.0;
@@ -5511,14 +5533,55 @@
       c.fillStyle = glow > 0.25 ? '#3F1D04' : k.accent && od < 0.1 ? '#FFFFFF' : dt.capText;
       if (deskDir === 'dog') {
         c.save();
-        c.translate(k.lcx, k.ly + pressOffset + capH * 0.5);
+        c.translate(k.lcx, k.ly + capH * 0.5);
         c.rotate(Math.PI);
         c.fillText(k.label, 0, 0);
         c.restore();
       } else {
-        c.fillText(k.label, k.lcx, k.ly + pressOffset + capH * 0.54);
+        c.fillText(k.label, k.lcx, k.ly + capH * 0.54);
       }
     }
+    c.restore();
+  }
+
+  function drawKeycapWell(c, dt) {
+    const { w, h } = KB_LOCAL;
+    roundRectPath(c, -w / 2 + 5.5, -h / 2 + 5.5, w - 11, h - 12.5, 7);
+    c.fillStyle = dt.kbWell;
+    c.fill();
+    for (const k of keysList) drawKeycapLocal(c, k, dt);
+  }
+
+  function drawKeycaps(c, dt) {
+    // Animated keys, screen shake and PNG export use the original vector resolution and layering.
+    if (c !== ctx || animatedKeys.size || inputState.overdriveBlend > 0.08 || inputState.shakeAmp > 0.05) {
+      drawKeycapWell(c, dt);
+      return;
+    }
+
+    if (!restingKeycaps) {
+      // Rasterize at the final device-pixel transform, including rotation and subpixel position.
+      const m = c.getTransform();
+      const halfW = (Math.abs(m.a) * KB_LOCAL.w + Math.abs(m.c) * KB_LOCAL.h) / 2;
+      const halfH = (Math.abs(m.b) * KB_LOCAL.w + Math.abs(m.d) * KB_LOCAL.h) / 2;
+      const x = Math.floor(m.e - halfW);
+      const y = Math.floor(m.f - halfH);
+      const image = document.createElement('canvas');
+      image.width = Math.ceil(m.e + halfW) - x;
+      image.height = Math.ceil(m.f + halfH) - y;
+      const layer = image.getContext('2d');
+      if (!layer) {
+        drawKeycapWell(c, dt);
+        return;
+      }
+      layer.setTransform(m.a, m.b, m.c, m.d, m.e - x, m.f - y);
+      drawKeycapWell(layer, dt);
+      restingKeycaps = { image, x, y };
+    }
+
+    c.save();
+    c.setTransform(1, 0, 0, 1, 0, 0);
+    c.drawImage(restingKeycaps.image, restingKeycaps.x, restingKeycaps.y);
     c.restore();
   }
 
@@ -5577,13 +5640,7 @@
     c.lineWidth = dt.kbStrokeW;
     c.stroke();
 
-    roundRectPath(c, -kbHW + 5.5, -kbHH + 5.5, KB_LOCAL.w - 11, KB_LOCAL.h - 12.5, 7);
-    c.fillStyle = dt.kbWell;
-    c.fill();
-
-    for (const k of keysList) {
-      drawKeycapLocal(c, k, dt);
-    }
+    drawKeycaps(c, dt);
     c.restore();
 
     // 2. Right-Side Mouse Pad & User-Perspective Mouse
@@ -5989,7 +6046,7 @@
       ctx.restore();
     }
 
-    const { h: stageH } = getStageDims();
+    const { h: stageH } = stage;
     const badgeHeight = 24;
     const badgeDrift = 16;
     // Leave room for the border and the pop animation's overshoot.
@@ -6259,7 +6316,7 @@
         const hintText = overDog ? '点击喂我 😋' : '点小狗投喂';
         const pillW = 86;
         const pillH = 22;
-        const pillX = clamp(pos.x, pillW * 0.5 + 8, getStageDims().w - pillW * 0.5 - 8);
+        const pillX = clamp(pos.x, pillW * 0.5 + 8, stage.w - pillW * 0.5 - 8);
         const pillY = pos.y > 78 ? pos.y - 34 : pos.y + 34;
 
         ctx.save();
@@ -6283,7 +6340,7 @@
   function drawComboHudStage() {
     if (inputState.comboBadgeAlpha <= 0.02 || inputState.displayCombo < 3) return;
 
-    const { w: stageW } = getStageDims();
+    const { w: stageW } = stage;
     const cVal = inputState.displayCombo;
     const isOverdrive = cVal >= FULL_OVERDRIVE_COMBO || manualDogState === 'overdrive';
     const isTurbo = cVal >= OVERDRIVE_COMBO;
@@ -6463,7 +6520,7 @@
 
   function drawScene() {
     ctx.setTransform(viewport.dpr, 0, 0, viewport.dpr, 0, 0);
-    drawBackdropFullViewport();
+    ctx.clearRect(0, 0, viewport.cssW, viewport.cssH);
 
     const shakeX = inputState.shakeAmp > 0.05 ? (Math.random() - 0.5) * 2 * inputState.shakeAmp : 0;
     const shakeY = inputState.shakeAmp > 0.05 ? (Math.random() - 0.5) * 2 * inputState.shakeAmp : 0;
@@ -6474,8 +6531,7 @@
 
     drawStageAmbientDecorations();
 
-    const placements = getActivePlacements();
-    for (const p of placements) {
+    for (const p of activePlacements) {
       drawPuppyWorkstation(ctx, p, false);
     }
 

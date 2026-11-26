@@ -2,7 +2,7 @@ use serde::Serialize;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Emitter, Manager, WebviewWindow};
+use tauri::{AppHandle, Emitter, Manager, WebviewWindow, WindowEvent};
 
 use crate::PetRuntimeState;
 
@@ -44,13 +44,11 @@ pub struct WindowSnapshot {
     pub win_w_logical: f64,
     pub win_h_logical: f64,
     pub scale_factor: f64,
-    pub passthrough_locked: bool,
-    pub holding_treat: bool,
 }
 
 impl WindowSnapshot {
     fn from_window(win: &WebviewWindow) -> Option<Self> {
-        let scale = win.scale_factor().ok().unwrap_or(1.0).max(0.5);
+        let scale = win.scale_factor().ok()?.max(0.5);
         let pos = win.outer_position().ok()?;
         let size = win.outer_size().ok()?;
         Some(Self {
@@ -59,7 +57,6 @@ impl WindowSnapshot {
             win_w_logical: size.width as f64 / scale,
             win_h_logical: size.height as f64 / scale,
             scale_factor: scale,
-            ..Self::default()
         })
     }
 
@@ -102,49 +99,60 @@ pub fn start_global_input_and_passthrough(
         let snap_clone = shared_snap.clone();
         let tap_flag = tap_active.clone();
 
+        let Some(win) = app.get_webview_window("main") else {
+            return;
+        };
+        let geometry_dirty = Arc::new(AtomicBool::new(true));
+        let dirty = geometry_dirty.clone();
+        win.on_window_event(move |event| {
+            if matches!(
+                event,
+                WindowEvent::Moved(_)
+                    | WindowEvent::Resized(_)
+                    | WindowEvent::ScaleFactorChanged { .. }
+                    | WindowEvent::Destroyed
+            ) {
+                dirty.store(true, Ordering::Relaxed);
+            }
+        });
+
         std::thread::spawn(move || {
+            let mut snap = WindowSnapshot::default();
             let mut last_ignore: Option<bool> = None;
             let mut last_cursor: (f64, f64) = (-9999.0, -9999.0);
 
             loop {
                 std::thread::sleep(Duration::from_millis(28));
 
-                let Some(win) = app_clone.get_webview_window("main") else {
-                    continue;
-                };
-
-                // Window queries wait for the UI thread. Never hold the state lock here.
-                let Some(mut snap) = WindowSnapshot::from_window(&win) else {
-                    continue;
-                };
-                let menu_guard_active = {
-                    let Ok(guard) = state_clone.lock() else {
+                // Consume the flag before querying so a concurrent window change triggers another refresh.
+                if geometry_dirty.swap(false, Ordering::Relaxed) {
+                    let Some(updated) = WindowSnapshot::from_window(&win) else {
+                        if app_clone.get_webview_window("main").is_none() {
+                            break;
+                        }
+                        geometry_dirty.store(true, Ordering::Relaxed);
                         continue;
                     };
-                    snap.passthrough_locked = guard.passthrough_locked;
-                    snap.holding_treat = guard.holding_treat;
-                    guard
-                        .pause_passthrough_until
-                        .map(|until| Instant::now() < until)
-                        .unwrap_or(false)
-                };
-
-                if let Ok(mut s_lock) = snap_clone.lock() {
-                    *s_lock = snap;
+                    snap = updated;
+                    if let Ok(mut shared) = snap_clone.lock() {
+                        *shared = snap;
+                    }
                 }
 
-                let Some((cx, cy, sw, sh)) = query_cursor_and_screen_logical(snap.scale_factor) else {
+                let Some((cx, cy)) = query_cursor_logical(snap.scale_factor) else {
                     continue;
                 };
 
                 let (rel_x, rel_y, interactive) = snap.evaluate_cursor(cx, cy);
 
-                let want_ignore = if menu_guard_active {
-                    false
-                } else if snap.passthrough_locked && !snap.holding_treat {
-                    true
-                } else {
-                    !interactive
+                let want_ignore = {
+                    let Ok(guard) = state_clone.lock() else {
+                        continue;
+                    };
+                    let menu_open = guard
+                        .pause_passthrough_until
+                        .is_some_and(|until| Instant::now() < until);
+                    !menu_open && ((guard.passthrough_locked && !guard.holding_treat) || !interactive)
                 };
 
                 if last_ignore != Some(want_ignore) {
@@ -158,6 +166,7 @@ pub fn start_global_input_and_passthrough(
                     let moved = (cx - last_cursor.0).hypot(cy - last_cursor.1);
                     if moved > 0.8 {
                         last_cursor = (cx, cy);
+                        let (sw, sh) = screen_size_logical(snap.scale_factor);
                         let norm_x = (cx / sw.max(1.0)).clamp(0.0, 1.0);
                         let norm_y = (cy / sh.max(1.0)).clamp(0.0, 1.0);
                         let _ = app_clone.emit(
@@ -303,7 +312,7 @@ mod platform {
             .spawn();
     }
 
-    pub fn query_cursor_and_screen_logical(_scale: f64) -> Option<(f64, f64, f64, f64)> {
+    pub fn query_cursor_logical(_scale: f64) -> Option<(f64, f64)> {
         unsafe {
             let ev = CGEventCreate(ptr::null());
             if ev.is_null() {
@@ -312,10 +321,14 @@ mod platform {
             let loc = CGEventGetLocation(ev);
             CFRelease(ev as *const c_void);
 
-            let main_id = CGMainDisplayID();
-            let sw = CGDisplayPixelsWide(main_id) as f64;
-            let sh = CGDisplayPixelsHigh(main_id) as f64;
-            Some((loc.x, loc.y, sw.max(1.0), sh.max(1.0)))
+            Some((loc.x, loc.y))
+        }
+    }
+
+    pub fn screen_size_logical(_scale: f64) -> (f64, f64) {
+        unsafe {
+            let display = CGMainDisplayID();
+            (CGDisplayPixelsWide(display) as f64, CGDisplayPixelsHigh(display) as f64)
         }
     }
 
@@ -386,10 +399,7 @@ mod platform {
                 if now.duration_since(ctx.last_move_emit) >= Duration::from_millis(15) {
                     ctx.last_move_emit = now;
                     let loc = unsafe { CGEventGetLocation(event) };
-                    let (sw, sh) = unsafe {
-                        let d = CGMainDisplayID();
-                        (CGDisplayPixelsWide(d) as f64, CGDisplayPixelsHigh(d) as f64)
-                    };
+                    let (sw, sh) = screen_size_logical(1.0);
                     let (rel_x, rel_y, in_pet) = ctx
                         .snap
                         .lock()
@@ -661,16 +671,23 @@ mod platform {
 
     static WIN_STATE: OnceLock<WinHookState> = OnceLock::new();
 
-    pub fn query_cursor_and_screen_logical(scale: f64) -> Option<(f64, f64, f64, f64)> {
+    pub fn query_cursor_logical(scale: f64) -> Option<(f64, f64)> {
         unsafe {
             let mut pt = POINT { x: 0, y: 0 };
             if GetCursorPos(&mut pt) == 0 {
                 return None;
             }
             let s = scale.max(0.5);
-            let sw = GetSystemMetrics(SM_CXSCREEN) as f64 / s;
-            let sh = GetSystemMetrics(SM_CYSCREEN) as f64 / s;
-            Some((pt.x as f64 / s, pt.y as f64 / s, sw.max(1.0), sh.max(1.0)))
+            Some((pt.x as f64 / s, pt.y as f64 / s))
+        }
+    }
+
+    pub fn screen_size_logical(scale: f64) -> (f64, f64) {
+        unsafe {
+            (
+                GetSystemMetrics(SM_CXSCREEN) as f64 / scale,
+                GetSystemMetrics(SM_CYSCREEN) as f64 / scale,
+            )
         }
     }
 
@@ -718,14 +735,13 @@ mod platform {
                             let now = Instant::now();
                             if now.duration_since(*last) >= Duration::from_millis(15) {
                                 *last = now;
-                                let sw = (GetSystemMetrics(SM_CXSCREEN) as f64 / scale).max(1.0);
-                                let sh = (GetSystemMetrics(SM_CYSCREEN) as f64 / scale).max(1.0);
+                                let (sw, sh) = screen_size_logical(scale);
                                 let (rel_x, rel_y, in_pet) = snap_copy.evaluate_cursor(cx, cy);
                                 let _ = st.app.emit(
                                     "global-input",
                                     GlobalInputEvent::MouseMove {
-                                        norm_x: (cx / sw).clamp(0.0, 1.0),
-                                        norm_y: (cy / sh).clamp(0.0, 1.0),
+                                        norm_x: (cx / sw.max(1.0)).clamp(0.0, 1.0),
+                                        norm_y: (cy / sh.max(1.0)).clamp(0.0, 1.0),
                                         win_rel_x: rel_x,
                                         win_rel_y: rel_y,
                                         in_pet_bounds: in_pet,
@@ -902,8 +918,11 @@ mod platform {
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
 mod platform {
     use super::*;
-    pub fn query_cursor_and_screen_logical(_scale: f64) -> Option<(f64, f64, f64, f64)> {
+    pub fn query_cursor_logical(_scale: f64) -> Option<(f64, f64)> {
         None
+    }
+    pub fn screen_size_logical(_scale: f64) -> (f64, f64) {
+        (1.0, 1.0)
     }
     pub fn spawn_platform_hook_thread(
         _app: AppHandle,
@@ -915,4 +934,4 @@ mod platform {
 
 #[cfg(target_os = "macos")]
 pub use platform::{open_input_monitoring_settings, request_input_monitoring};
-use platform::{query_cursor_and_screen_logical, spawn_platform_hook_thread};
+use platform::{query_cursor_logical, screen_size_logical, spawn_platform_hook_thread};
