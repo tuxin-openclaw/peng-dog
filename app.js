@@ -20,7 +20,9 @@
   const ctxChkSoundEl = document.getElementById('ctxChkSound');
   const ctxChkPopupsEl = document.getElementById('ctxChkPopups');
   const ctxViewChecks = Array.from(document.querySelectorAll('[data-chk-view]'));
+  const ctxStateChecks = Array.from(document.querySelectorAll('[data-chk-state]'));
   const viewTabs = Array.from(document.querySelectorAll('.char-tab'));
+  const stateBtns = Array.from(document.querySelectorAll('.state-btn'));
   const treatBtns = Array.from(document.querySelectorAll('.treat-btn'));
 
   // Detect Tauri Desktop Pet runtime (or ?desktop=1 preview mode)
@@ -38,6 +40,8 @@
     : 'all';
   let isDarkTheme = false;
   let showKeyPopups = localStorage.getItem('peng_pet_popups') !== 'false';
+  let manualDogState = 'normal'; // 'normal' | 'happy' | 'drool' | 'sleepy' | 'overdrive'
+  let lastSyncedUiState = 'normal';
 
   function getStageDims() {
     if (!IS_DESKTOP_PET) return { w: 1320, h: 700 };
@@ -1025,8 +1029,11 @@
 
   // Wake sleeping/yawning puppies — bursting snot bubbles if they were nodding off!
   function wakeFromIdle(isSuddenAction = true) {
-    const wasIdle = inputState.idleTime >= 11.8;
+    const wasIdle = inputState.idleTime >= 11.8 || manualDogState === 'sleepy';
     inputState.idleTime = 0;
+    if (manualDogState === 'sleepy') {
+      manualDogState = 'normal';
+    }
     if (!wasIdle) return false;
 
     let poppedAnyBubble = false;
@@ -1054,6 +1061,7 @@
     }
 
     inputState.zzzParticles.length = 0;
+    syncStateUI();
     if (poppedAnyBubble) {
       playBubblePopSound();
       statusHintEl.textContent = '啪！鼻涕泡破掉啦，小狗激灵一下瞬间清醒开工 ⚡';
@@ -1304,6 +1312,25 @@
     }
   }
 
+  function getEffectiveDogState() {
+    if (manualDogState !== 'normal') return manualDogState;
+    if (inputState.idleTime >= 12.0) return 'sleepy';
+    return 'normal';
+  }
+
+  function syncStateUI() {
+    const activeState = getEffectiveDogState();
+    lastSyncedUiState = activeState;
+    for (const btn of stateBtns) {
+      const active = btn.dataset.state === activeState;
+      btn.classList.toggle('is-active', active);
+      btn.setAttribute('aria-pressed', String(active));
+    }
+    for (const el of ctxStateChecks) {
+      el.textContent = el.dataset.chkState === activeState ? '✓' : '';
+    }
+  }
+
   function syncSoundAndMenuCheckmarks() {
     if (soundToggleBtn) {
       soundToggleBtn.setAttribute('aria-pressed', String(soundEnabled));
@@ -1315,6 +1342,7 @@
     for (const el of ctxViewChecks) {
       el.textContent = el.dataset.chkView === currentView ? '✓' : '';
     }
+    syncStateUI();
   }
 
   function closeWebContextMenu() {
@@ -1364,20 +1392,127 @@
     drawScene();
   }
 
-  function triggerNapCommand() {
-    cancelActiveTreat();
-    if (inputState.idleTime < 12) {
-      inputState.idleTime = 12.1;
-      if (statusHintEl) {
-        statusHintEl.textContent = '哈欠～小狗开始眼皮打架犯困啦，马上吹鼻涕泡 💤（敲键或点击即可戳醒！）';
-      }
-    } else {
-      inputState.idleTime = 16.2;
-      if (statusHintEl) {
-        statusHintEl.textContent = '呼噜噜…小狗正在点头吹鼻涕泡 🫧 敲一下键盘或点它试试！';
+  const VALID_DOG_STATES = new Set(['normal', 'happy', 'drool', 'sleepy', 'overdrive']);
+
+  function setDogState(stateId, options = {}) {
+    if (!VALID_DOG_STATES.has(stateId)) return;
+    const toggleOnSame = Boolean(options.toggleOnSame);
+    const effectiveBefore = getEffectiveDogState();
+
+    // Clicking an already-active state button toggles intelligently
+    if (toggleOnSame) {
+      if (stateId === 'sleepy' && effectiveBefore === 'sleepy') {
+        if (inputState.idleTime < 15.5) {
+          manualDogState = 'sleepy';
+          inputState.idleTime = 16.2;
+          inputState.sleepGraceUntil = inputState.time + 0.9;
+          syncStateUI();
+          if (statusHintEl) {
+            statusHintEl.textContent = '呼噜噜…小狗正在点头吹鼻涕泡 🫧 再点一下或敲键/点击即可戳醒！';
+          }
+          drawScene();
+          return;
+        }
+        // Already deeply asleep -> wake back to normal!
+        stateId = 'normal';
+      } else if (stateId !== 'normal' && manualDogState === stateId) {
+        stateId = 'normal';
       }
     }
-    inputState.sleepGraceUntil = inputState.time + 0.9;
+
+    cancelActiveTreat();
+
+    if (stateId === 'sleepy') {
+      manualDogState = 'sleepy';
+      if (inputState.idleTime < 12.0) {
+        inputState.idleTime = 12.1;
+        if (statusHintEl) {
+          statusHintEl.textContent = '已切换「犯困」状态 · 哈欠连天眼皮打架啦，马上吹鼻涕泡 💤（再点立即熟睡）';
+        }
+      } else {
+        inputState.idleTime = 16.2;
+        if (statusHintEl) {
+          statusHintEl.textContent = '呼噜噜…小狗正在点头吹鼻涕泡 🫧 敲一下键盘或点它试试！';
+        }
+      }
+      inputState.sleepGraceUntil = inputState.time + 0.9;
+      syncStateUI();
+      drawScene();
+      return;
+    }
+
+    // Switching out of sleepy -> wake up (pop bubble when returning to normal/overdrive)
+    const wasSleeping = inputState.idleTime >= 11.8 || manualDogState === 'sleepy';
+    manualDogState = stateId;
+    if (wasSleeping) {
+      wakeFromIdle(stateId === 'normal' || stateId === 'overdrive');
+    }
+
+    const placements = getActivePlacements();
+    if (stateId === 'normal') {
+      for (const { dog } of placements) {
+        dog.state.bounce = Math.max(dog.state.bounce, 0.72);
+        dog.state.leftEarKick = Math.max(dog.state.leftEarKick, 0.65);
+        dog.state.rightEarKick = Math.max(dog.state.rightEarKick, 0.65);
+      }
+      if (!wasSleeping && statusHintEl) {
+        statusHintEl.textContent = '已切回「默认」状态 · 正常响应键鼠与摸头，静置 15 秒自动犯困 🐶';
+      }
+    } else if (stateId === 'happy') {
+      for (const p of placements) {
+        const st = p.dog.state;
+        const hx = p.cx + (DOG_X + st.leanX) * p.scale;
+        const hy = p.baseY - 204 * p.scale;
+        st.bounce = 1.05;
+        st.leftEarKick = 1.0;
+        st.rightEarKick = 1.0;
+        st.excitement = 1.0;
+        st.lastHeartAt = inputState.time;
+        if (p.dog.def.face.sunglasses) st.glintProgress = 0.01;
+        for (let i = 0; i < 3; i++) {
+          spawnFloatingHeart(hx, hy - 78 * p.scale, 15);
+        }
+      }
+      playMouseClickSound(false);
+      if (statusHintEl) {
+        statusHintEl.textContent = '已切换「开心」状态 · 弯弯笑眼吐舌大笑，摇尾巴超开心 💕';
+      }
+    } else if (stateId === 'drool') {
+      for (const { dog } of placements) {
+        const st = dog.state;
+        st.bounce = 0.85;
+        st.leftEarKick = 0.85;
+        st.rightEarKick = 0.85;
+        st.excitement = 0.8;
+        if (dog.def.face.sunglasses) st.glintProgress = 0.01;
+      }
+      playMouseClickSound(true);
+      if (statusHintEl) {
+        statusHintEl.textContent = '已切换「馋嘴」状态 · 流口水眼巴巴等投喂，墨镜金毛露出星星眼 🤤✨';
+      }
+    } else if (stateId === 'overdrive') {
+      inputState.shakeAmp = Math.max(inputState.shakeAmp, 2.2);
+      for (const p of placements) {
+        const st = p.dog.state;
+        st.bounce = 1.15;
+        st.leftEarKick = 1.15;
+        st.rightEarKick = 1.15;
+        st.excitement = 1.0;
+        if (p.dog.def.face.sunglasses) st.glintProgress = 0.01;
+        spawnSparkles(p.cx + (DOG_X + st.leanX) * p.scale, p.baseY - 190 * p.scale, '#FF8F2B', 8);
+      }
+      playKeySound(true);
+      if (statusHintEl) {
+        statusHintEl.textContent = '已切换「狂暴」状态 · 火焰气场 + RGB 彩虹键盘火力全开 🔥';
+      }
+    }
+
+    syncStateUI();
+    drawScene();
+  }
+
+  function triggerNapCommand() {
+    setDogState('sleepy', { toggleOnSame: true });
   }
 
   function feedActivePuppiesDirect(treatType) {
@@ -1416,6 +1551,9 @@
     switch (action) {
       case 'set-view':
         if (value) setView(value);
+        break;
+      case 'set-state':
+        if (value) setDogState(value, { toggleOnSame: false });
         break;
       case 'feed':
         feedActivePuppiesDirect(value || 'bone');
@@ -1480,6 +1618,15 @@
       e.stopPropagation();
       closeWebContextMenu();
       setView(btn.dataset.view);
+      btn.blur();
+    });
+  }
+
+  for (const btn of stateBtns) {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      closeWebContextMenu();
+      setDogState(btn.dataset.state || 'normal', { toggleOnSame: true });
       btn.blur();
     });
   }
@@ -1566,7 +1713,7 @@
 
     if (!useRight) {
       const lp = st.leftPaw;
-      if (inputState.combo >= 28 && lp.isExtended) {
+      if ((inputState.combo >= 28 || manualDogState === 'overdrive') && lp.isExtended) {
         st.pawTrails.push({ x: lp.x, y: lp.y, alpha: 0.52 });
         if (st.pawTrails.length > 6) st.pawTrails.shift();
       }
@@ -1582,7 +1729,7 @@
       st.leftEarKick = 1;
     } else {
       const rp = st.rightPaw;
-      if (inputState.combo >= 28 && rp.isExtended) {
+      if ((inputState.combo >= 28 || manualDogState === 'overdrive') && rp.isExtended) {
         st.pawTrails.push({ x: rp.x, y: rp.y, alpha: 0.52 });
         if (st.pawTrails.length > 6) st.pawTrails.shift();
       }
@@ -2114,24 +2261,42 @@
       showCombo ? 1 : 0,
       1 - Math.exp(-dt * (showCombo ? 18 : 6))
     );
+    const isForcedOverdrive = manualDogState === 'overdrive';
+    const isForcedHappy = manualDogState === 'happy';
+    const isForcedDrool = manualDogState === 'drool';
+
     inputState.turboBlend = lerp(
       inputState.turboBlend,
-      inputState.combo >= 30 ? 1 : 0,
+      isForcedOverdrive || inputState.combo >= 30 ? 1 : 0,
       1 - Math.exp(-dt * 8)
     );
     inputState.overdriveBlend = lerp(
       inputState.overdriveBlend,
-      inputState.combo >= 60 ? 1 : 0,
+      isForcedOverdrive || inputState.combo >= 60 ? 1 : 0,
       1 - Math.exp(-dt * 8)
     );
 
     // 2. Idle Drowsy / Yawn / Sleep Progression
     const isUserBusy =
       anyMouseHeld || inputState.activeCodes.size > 0 || Boolean(inputState.activeTreat);
-    if (isUserBusy) {
+    if (manualDogState === 'sleepy') {
+      if (isUserBusy) {
+        manualDogState = 'normal';
+        inputState.idleTime = 0;
+      } else {
+        inputState.idleTime = Math.max(inputState.idleTime, 12.0) + dt;
+      }
+    } else if (manualDogState !== 'normal') {
+      inputState.idleTime = 0;
+    } else if (isUserBusy) {
       inputState.idleTime = 0;
     } else {
       inputState.idleTime += dt;
+    }
+
+    const effectiveState = getEffectiveDogState();
+    if (effectiveState !== lastSyncedUiState) {
+      syncStateUI();
     }
 
     let globalYawnTarget = 0;
@@ -2158,7 +2323,7 @@
       ? findFeedTargetPlacement(inputState.pointerStageX, inputState.pointerStageY)
       : null;
 
-    const pawFollow = 1 - Math.exp(-dt * (inputState.combo >= 30 ? 32 : 24));
+    const pawFollow = 1 - Math.exp(-dt * (isForcedOverdrive || inputState.combo >= 30 ? 32 : 24));
 
     for (const dogObj of dogsList) {
       const st = dogObj.state;
@@ -2187,37 +2352,55 @@
       const isTreatTarget = Boolean(
         treatFeedHit && treatFeedHit.placement.dog.id === dogObj.id && treatFeedHit.proximity > 0.18
       );
-      const targetDrool = inputState.activeTreat && st.chewTimer <= 0 ? 1 : 0;
+      const targetDrool = (inputState.activeTreat || isForcedDrool) && st.chewTimer <= 0 ? 1 : 0;
       const targetAnticipation =
-        isTreatTarget && st.chewTimer <= 0 ? clamp(treatFeedHit.proximity * 1.45, 0, 1) : 0;
+        st.chewTimer <= 0
+          ? isTreatTarget
+            ? clamp(treatFeedHit.proximity * 1.45, 0, 1)
+            : isForcedDrool
+              ? 0.88
+              : 0
+          : 0;
       st.droolBlend = lerp(st.droolBlend, targetDrool, 1 - Math.exp(-dt * 10));
       st.anticipationBlend = lerp(st.anticipationBlend, targetAnticipation, 1 - Math.exp(-dt * 15));
 
       // Sunny Easter egg: sunglasses slide down revealing starry eyes when treat is near or just eaten!
       const wantSunglassesPeek =
         dogObj.def.face.sunglasses &&
-        (st.anticipationBlend > 0.32 || inputState.time < st.sunglassesPeekUntil);
+        (st.anticipationBlend > 0.32 || isForcedDrool || inputState.time < st.sunglassesPeekUntil);
       st.sunglassesDrop = lerp(
         st.sunglassesDrop,
         wantSunglassesPeek ? 1 : 0,
         1 - Math.exp(-dt * (wantSunglassesPeek ? 16 : 9))
       );
 
-      // Check if this specific puppy's head is currently being petted (or happily chewing)!
+      // Check if this specific puppy's head is currently being petted (or happily chewing / forced happy)!
       const isHeadHovered = Boolean(hoveredHead && hoveredHead.placement.dog.id === dogObj.id);
       if (isHeadHovered) {
         st.petHoldUntil = Math.max(st.petHoldUntil, inputState.time + 0.28);
       }
       const isPetted =
-        (inputState.time < st.petHoldUntil || st.chewTimer > 0) &&
+        (isForcedHappy || inputState.time < st.petHoldUntil || st.chewTimer > 0) &&
         st.sleepBlend < 0.2 &&
         st.wakeShockTimer <= 0;
       st.happyBlend = lerp(st.happyBlend, isPetted ? 1 : 0, 1 - Math.exp(-dt * (isPetted ? 14 : 8)));
+
+      // Periodic floating hearts while in forced happy state
+      if (placement && isForcedHappy && st.happyBlend > 0.7 && inputState.time - st.lastHeartAt > 1.35) {
+        st.lastHeartAt = inputState.time + Math.random() * 0.35;
+        spawnFloatingHeart(
+          placement.cx + (DOG_X + st.leanX) * placement.scale,
+          placement.baseY - 280 * placement.scale,
+          13
+        );
+      }
 
       const breathSpeed = st.sleepBlend > 0.3 ? 1.55 : 2.5 + inputState.turboBlend * 1.8;
       st.breathPhase += dt * breathSpeed;
 
       if (isPetted || inputState.activeTreat) st.excitement = Math.max(st.excitement, 0.65);
+      if (isForcedDrool) st.excitement = Math.max(st.excitement, 0.55);
+      if (isForcedOverdrive) st.excitement = Math.max(st.excitement, 0.88);
       if (inputState.combo >= 10) {
         st.excitement = Math.max(st.excitement, clamp(inputState.combo / 45, 0.35, 1.0));
       }
