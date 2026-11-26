@@ -16,14 +16,15 @@
       {
         "label": "main",
         "title": "PengDog 桌宠",
-        "width": 385,
-        "height": 455,
+        "width": 231,
+        "height": 273,
         "resizable": false,
         "maximizable": false,
         "minimizable": false,
         "decorations": false,
         "transparent": true,
         "alwaysOnTop": true,
+        "acceptFirstMouse": true,
         "skipTaskbar": true,
         "shadow": false
       }
@@ -35,6 +36,9 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "macOS": {
+      "minimumSystemVersion": "10.15"
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

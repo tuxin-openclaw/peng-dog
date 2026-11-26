@@ -1,6 +1,7 @@
 mod input_hook;
 
 use serde::Serialize;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::image::Image;
@@ -8,15 +9,22 @@ use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::TrayIconBuilder;
 use tauri::{
     AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, PhysicalPosition, State,
-    WebviewWindow, Wry,
+    WebviewUrl, WebviewWindow, WebviewWindowBuilder, Wry,
 };
 
+const DEFAULT_SCALE: u32 = 100;
+const MIN_SCALE: u32 = 60;
+const MAX_SCALE: u32 = 180;
+const SIZE_WINDOW_LABEL: &str = "pet-size";
+
+#[derive(Clone)]
 pub struct PetRuntimeState {
     pub current_view: String,
     pub desk_dir: String,
     pub scale_pct: u32,
     pub always_on_top: bool,
     pub passthrough_locked: bool,
+    pub holding_treat: bool,
     pub sound_enabled: bool,
     pub show_popups: bool,
     pub pause_passthrough_until: Option<Instant>,
@@ -26,10 +34,11 @@ impl Default for PetRuntimeState {
     fn default() -> Self {
         Self {
             current_view: "sunny".to_string(),
-            desk_dir: "user".to_string(),
-            scale_pct: 100,
+            desk_dir: "dog".to_string(),
+            scale_pct: DEFAULT_SCALE,
             always_on_top: true,
             passthrough_locked: false,
+            holding_treat: false,
             sound_enabled: false,
             show_popups: true,
             pause_passthrough_until: None,
@@ -43,12 +52,8 @@ struct ManagedApp {
     view_sunny: CheckMenuItem<Wry>,
     view_daisy: CheckMenuItem<Wry>,
     view_kuro: CheckMenuItem<Wry>,
-    view_all: CheckMenuItem<Wry>,
     desk_user: CheckMenuItem<Wry>,
     desk_dog: CheckMenuItem<Wry>,
-    scale_75: CheckMenuItem<Wry>,
-    scale_100: CheckMenuItem<Wry>,
-    scale_130: CheckMenuItem<Wry>,
     chk_top: CheckMenuItem<Wry>,
     chk_pass: CheckMenuItem<Wry>,
     chk_sound: CheckMenuItem<Wry>,
@@ -56,18 +61,20 @@ struct ManagedApp {
 }
 
 impl ManagedApp {
+    // Return a snapshot so callers can update native UI after releasing the state lock.
+    fn update_runtime(&self, update: impl FnOnce(&mut PetRuntimeState)) -> Option<PetRuntimeState> {
+        let mut state = self.runtime.lock().ok()?;
+        update(&mut state);
+        Some(state.clone())
+    }
+
     fn sync_checkmarks(&self, st: &PetRuntimeState) {
         let _ = self.view_sunny.set_checked(st.current_view == "sunny");
         let _ = self.view_daisy.set_checked(st.current_view == "daisy");
         let _ = self.view_kuro.set_checked(st.current_view == "kuro");
-        let _ = self.view_all.set_checked(st.current_view == "all");
 
         let _ = self.desk_user.set_checked(st.desk_dir != "dog");
         let _ = self.desk_dog.set_checked(st.desk_dir == "dog");
-
-        let _ = self.scale_75.set_checked(st.scale_pct == 75);
-        let _ = self.scale_100.set_checked(st.scale_pct == 100);
-        let _ = self.scale_130.set_checked(st.scale_pct == 130);
 
         let _ = self.chk_top.set_checked(st.always_on_top);
         let _ = self.chk_pass.set_checked(st.passthrough_locked);
@@ -82,17 +89,90 @@ struct FrontendMenuPayload<'a> {
     value: &'a str,
 }
 
-fn target_logical_size(view: &str, scale_pct: u32) -> (f64, f64) {
-    let s = (scale_pct as f64 / 100.0).clamp(0.6, 1.6);
-    if view == "all" {
-        (960.0 * s, 405.0 * s)
-    } else {
-        (385.0 * s, 455.0 * s)
+fn target_logical_size(scale_pct: u32) -> (f64, f64) {
+    let s = f64::from(scale_pct.clamp(MIN_SCALE, MAX_SCALE)) / 100.0;
+    (231.0 * s, 273.0 * s)
+}
+
+fn scale_path(app: &AppHandle) -> tauri::Result<PathBuf> {
+    Ok(app.path().app_config_dir()?.join("pet-scale"))
+}
+
+fn load_pet_scale(app: &AppHandle) -> u32 {
+    scale_path(app)
+        .ok()
+        .and_then(|path| std::fs::read_to_string(path).ok())
+        .and_then(|value| value.trim().parse::<u32>().ok())
+        .map(|value| value.clamp(MIN_SCALE, MAX_SCALE))
+        .unwrap_or(DEFAULT_SCALE)
+}
+
+fn show_size_controls(app: &AppHandle) -> tauri::Result<()> {
+    let window = match app.get_webview_window(SIZE_WINDOW_LABEL) {
+        Some(window) => window,
+        None => WebviewWindowBuilder::new(app, SIZE_WINDOW_LABEL, WebviewUrl::App("size.html".into()))
+            .title("桌宠尺寸")
+            .inner_size(360.0, 156.0)
+            .resizable(false)
+            .minimizable(false)
+            .maximizable(false)
+            .skip_taskbar(true)
+            .always_on_top(true)
+            .visible(false)
+            .center()
+            .build()?,
+    };
+    window.show()?;
+    window.set_focus()
+}
+
+#[derive(Serialize)]
+struct PetScale {
+    value: u32,
+    min: u32,
+    max: u32,
+    standard: u32,
+}
+
+#[tauri::command]
+fn get_pet_scale(managed: State<'_, ManagedApp>) -> PetScale {
+    PetScale {
+        value: managed.runtime.lock().map(|st| st.scale_pct).unwrap_or(DEFAULT_SCALE),
+        min: MIN_SCALE,
+        max: MAX_SCALE,
+        standard: DEFAULT_SCALE,
     }
 }
 
-fn place_window_bottom_right(win: &WebviewWindow, view: &str, scale_pct: u32) {
-    let (lw, lh) = target_logical_size(view, scale_pct);
+#[tauri::command]
+fn set_pet_scale(
+    app: AppHandle,
+    managed: State<'_, ManagedApp>,
+    scale_pct: u32,
+    save: bool,
+) -> Result<(), String> {
+    let pet = app.get_webview_window("main").ok_or("找不到桌宠窗口")?;
+    let scale_pct = scale_pct.clamp(MIN_SCALE, MAX_SCALE);
+    let changed = {
+        let mut state = managed.runtime.lock().map_err(|err| err.to_string())?;
+        let changed = state.scale_pct != scale_pct;
+        state.scale_pct = scale_pct;
+        changed
+    };
+    if changed {
+        resize_anchoring_bottom_right(&pet, scale_pct);
+    }
+    if save {
+        let path = scale_path(&app).map_err(|err| err.to_string())?;
+        let dir = path.parent().ok_or("找不到设置目录")?;
+        std::fs::create_dir_all(dir).map_err(|err| err.to_string())?;
+        std::fs::write(path, scale_pct.to_string()).map_err(|err| err.to_string())?;
+    }
+    Ok(())
+}
+
+fn place_window_bottom_right(win: &WebviewWindow, scale_pct: u32) {
+    let (lw, lh) = target_logical_size(scale_pct);
     let _ = win.set_size(LogicalSize::new(lw, lh));
 
     if let Ok(Some(mon)) = win.current_monitor().or_else(|_| win.primary_monitor()) {
@@ -111,8 +191,8 @@ fn place_window_bottom_right(win: &WebviewWindow, view: &str, scale_pct: u32) {
     }
 }
 
-fn resize_anchoring_bottom_right(win: &WebviewWindow, view: &str, scale_pct: u32) {
-    let (new_lw, new_lh) = target_logical_size(view, scale_pct);
+fn resize_anchoring_bottom_right(win: &WebviewWindow, scale_pct: u32) {
+    let (new_lw, new_lh) = target_logical_size(scale_pct);
     let scale = win.scale_factor().unwrap_or(1.0).max(0.5);
 
     if let (Ok(old_pos), Ok(old_size)) = (win.outer_position(), win.outer_size()) {
@@ -141,8 +221,9 @@ fn resize_anchoring_bottom_right(win: &WebviewWindow, view: &str, scale_pct: u32
 
 #[tauri::command]
 fn show_pet_context_menu(win: WebviewWindow, managed: State<'_, ManagedApp>) -> Result<(), String> {
-    if let Ok(mut st) = managed.runtime.lock() {
+    if let Some(st) = managed.update_runtime(|st| {
         st.pause_passthrough_until = Some(Instant::now() + Duration::from_millis(650));
+    }) {
         managed.sync_checkmarks(&st);
     }
     let _ = win.set_ignore_cursor_events(false);
@@ -163,20 +244,23 @@ fn start_pet_drag(win: WebviewWindow, managed: State<'_, ManagedApp>) -> Result<
 }
 
 #[tauri::command]
+fn set_holding_treat(managed: State<'_, ManagedApp>, holding: bool) {
+    let _ = managed.update_runtime(|st| {
+        st.holding_treat = holding;
+    });
+}
+
+#[tauri::command]
 fn sync_pet_preferences(
-    app: AppHandle,
     managed: State<'_, ManagedApp>,
     view: String,
     desk_dir: Option<String>,
     sound_enabled: bool,
     show_popups: bool,
 ) {
-    if let Ok(mut st) = managed.runtime.lock() {
-        if matches!(view.as_str(), "sunny" | "daisy" | "kuro" | "all") && st.current_view != view {
-            st.current_view = view.clone();
-            if let Some(win) = app.get_webview_window("main") {
-                resize_anchoring_bottom_right(&win, &st.current_view, st.scale_pct);
-            }
+    if let Some(st) = managed.update_runtime(|st| {
+        if matches!(view.as_str(), "sunny" | "daisy" | "kuro") {
+            st.current_view = view;
         }
         if let Some(dir) = desk_dir {
             if matches!(dir.as_str(), "user" | "dog") {
@@ -185,6 +269,7 @@ fn sync_pet_preferences(
         }
         st.sound_enabled = sound_enabled;
         st.show_popups = show_popups;
+    }) {
         managed.sync_checkmarks(&st);
     }
 }
@@ -196,18 +281,13 @@ fn handle_menu_command(app: &AppHandle, id: &str) {
     let win = app.get_webview_window("main");
 
     match id {
-        "view:sunny" | "view:daisy" | "view:kuro" | "view:all" => {
+        "view:sunny" | "view:daisy" | "view:kuro" => {
             let v = &id[5..];
-            let scale_pct = if let Ok(mut st) = managed.runtime.lock() {
-                st.current_view = v.to_string();
+            if let Some(st) = managed.update_runtime(|st| st.current_view = v.into()) {
                 managed.sync_checkmarks(&st);
-                st.scale_pct
-            } else {
-                100
-            };
+            }
             if let Some(w) = &win {
                 let _ = w.show();
-                resize_anchoring_bottom_right(w, v, scale_pct);
             }
             let _ = app.emit(
                 "pet-menu-command",
@@ -219,6 +299,12 @@ fn handle_menu_command(app: &AppHandle, id: &str) {
         }
         "feed:bone" | "feed:jerky" | "feed:cheese" => {
             let treat = &id[5..];
+            let _ = managed.update_runtime(|st| {
+                st.holding_treat = true;
+            });
+            if let Some(w) = &win {
+                let _ = w.show();
+            }
             let _ = app.emit(
                 "pet-menu-command",
                 FrontendMenuPayload {
@@ -256,8 +342,7 @@ fn handle_menu_command(app: &AppHandle, id: &str) {
         }
         "desk:user" | "desk:dog" => {
             let dir = &id[5..];
-            if let Ok(mut st) = managed.runtime.lock() {
-                st.desk_dir = dir.to_string();
+            if let Some(st) = managed.update_runtime(|st| st.desk_dir = dir.into()) {
                 managed.sync_checkmarks(&st);
             }
             let _ = app.emit(
@@ -268,22 +353,11 @@ fn handle_menu_command(app: &AppHandle, id: &str) {
                 },
             );
         }
-        "scale:75" | "scale:100" | "scale:130" => {
-            let pct: u32 = id[6..].parse().unwrap_or(100);
-            let view = if let Ok(mut st) = managed.runtime.lock() {
-                st.scale_pct = pct;
-                managed.sync_checkmarks(&st);
-                st.current_view.clone()
-            } else {
-                "sunny".to_string()
-            };
-            if let Some(w) = &win {
-                resize_anchoring_bottom_right(w, &view, pct);
-            }
+        "window:size" => {
+            let _ = show_size_controls(app);
         }
         "toggle:always_on_top" => {
-            if let Ok(mut st) = managed.runtime.lock() {
-                st.always_on_top = !st.always_on_top;
+            if let Some(st) = managed.update_runtime(|st| st.always_on_top = !st.always_on_top) {
                 managed.sync_checkmarks(&st);
                 if let Some(w) = &win {
                     let _ = w.set_always_on_top(st.always_on_top);
@@ -291,8 +365,9 @@ fn handle_menu_command(app: &AppHandle, id: &str) {
             }
         }
         "toggle:passthrough" => {
-            if let Ok(mut st) = managed.runtime.lock() {
-                st.passthrough_locked = !st.passthrough_locked;
+            if let Some(st) =
+                managed.update_runtime(|st| st.passthrough_locked = !st.passthrough_locked)
+            {
                 managed.sync_checkmarks(&st);
                 if let Some(w) = &win {
                     let _ = w.set_ignore_cursor_events(st.passthrough_locked);
@@ -300,8 +375,7 @@ fn handle_menu_command(app: &AppHandle, id: &str) {
             }
         }
         "toggle:sound" => {
-            if let Ok(mut st) = managed.runtime.lock() {
-                st.sound_enabled = !st.sound_enabled;
+            if let Some(st) = managed.update_runtime(|st| st.sound_enabled = !st.sound_enabled) {
                 let val = if st.sound_enabled { "true" } else { "false" };
                 managed.sync_checkmarks(&st);
                 let _ = app.emit(
@@ -314,8 +388,7 @@ fn handle_menu_command(app: &AppHandle, id: &str) {
             }
         }
         "toggle:popups" => {
-            if let Ok(mut st) = managed.runtime.lock() {
-                st.show_popups = !st.show_popups;
+            if let Some(st) = managed.update_runtime(|st| st.show_popups = !st.show_popups) {
                 let val = if st.show_popups { "true" } else { "false" };
                 managed.sync_checkmarks(&st);
                 let _ = app.emit(
@@ -328,16 +401,18 @@ fn handle_menu_command(app: &AppHandle, id: &str) {
             }
         }
         "window:reset_pos" => {
-            if let (Some(w), Ok(mut st)) = (&win, managed.runtime.lock()) {
-                st.passthrough_locked = false;
-                managed.sync_checkmarks(&st);
-                let _ = w.show();
-                let _ = w.set_ignore_cursor_events(false);
-                place_window_bottom_right(w, &st.current_view, st.scale_pct);
-            }
+            let Some(w) = &win else { return };
+            let Some(st) = managed.update_runtime(|st| st.passthrough_locked = false) else {
+                return;
+            };
+            managed.sync_checkmarks(&st);
+            let _ = w.show();
+            let _ = w.set_ignore_cursor_events(false);
+            place_window_bottom_right(w, st.scale_pct);
         }
         "window:perm_help" => {
-            let _ = input_hook::is_accessibility_trusted(true);
+            #[cfg(target_os = "macos")]
+            input_hook::open_input_monitoring_settings();
         }
         "app:quit" => {
             app.exit(0);
@@ -347,12 +422,14 @@ fn handle_menu_command(app: &AppHandle, id: &str) {
 }
 
 fn build_shared_menu(app: &AppHandle) -> tauri::Result<ManagedApp> {
-    let runtime = Arc::new(Mutex::new(PetRuntimeState::default()));
+    let runtime = Arc::new(Mutex::new(PetRuntimeState {
+        scale_pct: load_pet_scale(app),
+        ..PetRuntimeState::default()
+    }));
 
     let view_sunny = CheckMenuItem::with_id(app, "view:sunny", "🕶️ 墨镜金毛", true, true, None::<&str>)?;
     let view_daisy = CheckMenuItem::with_id(app, "view:daisy", "🌼 蓝巾小柴", true, false, None::<&str>)?;
     let view_kuro = CheckMenuItem::with_id(app, "view:kuro", "🖤 歪头黑柴", true, false, None::<&str>)?;
-    let view_all = CheckMenuItem::with_id(app, "view:all", "🐾 三只同框", true, false, None::<&str>)?;
 
     let feed_bone = MenuItem::with_id(app, "feed:bone", "🦴 喂香脆肉骨头", true, None::<&str>)?;
     let feed_jerky = MenuItem::with_id(app, "feed:jerky", "🥩 喂炭烤小肉干", true, None::<&str>)?;
@@ -367,18 +444,18 @@ fn build_shared_menu(app: &AppHandle) -> tauri::Result<ManagedApp> {
     let act_pet = MenuItem::with_id(app, "action:pet", "💕 摸摸头夸夸", true, None::<&str>)?;
     let act_nap = MenuItem::with_id(app, "action:nap", "💤 哄它犯困吹鼻涕泡", true, None::<&str>)?;
 
-    let desk_user = CheckMenuItem::with_id(
-        app,
-        "desk:user",
-        "👀 面向用户（鼠标在右）",
-        true,
-        true,
-        None::<&str>,
-    )?;
     let desk_dog = CheckMenuItem::with_id(
         app,
         "desk:dog",
         "🐶 面向狗狗（鼠标在左）",
+        true,
+        true,
+        None::<&str>,
+    )?;
+    let desk_user = CheckMenuItem::with_id(
+        app,
+        "desk:user",
+        "👀 面向主人（鼠标在右）",
         true,
         false,
         None::<&str>,
@@ -387,18 +464,10 @@ fn build_shared_menu(app: &AppHandle) -> tauri::Result<ManagedApp> {
         app,
         "⌨️ 键鼠朝向",
         true,
-        &[&desk_user, &desk_dog],
+        &[&desk_dog, &desk_user],
     )?;
 
-    let scale_75 = CheckMenuItem::with_id(app, "scale:75", "小巧 (75%)", true, false, None::<&str>)?;
-    let scale_100 = CheckMenuItem::with_id(app, "scale:100", "标准 (100%)", true, true, None::<&str>)?;
-    let scale_130 = CheckMenuItem::with_id(app, "scale:130", "放大 (130%)", true, false, None::<&str>)?;
-    let scale_submenu = Submenu::with_items(
-        app,
-        "📐 桌宠尺寸",
-        true,
-        &[&scale_75, &scale_100, &scale_130],
-    )?;
+    let size_controls = MenuItem::with_id(app, "window:size", "📐 调节桌宠尺寸…", true, None::<&str>)?;
 
     let chk_top = CheckMenuItem::with_id(app, "toggle:always_on_top", "📌 置顶显示", true, true, None::<&str>)?;
     let chk_pass = CheckMenuItem::with_id(
@@ -424,7 +493,7 @@ fn build_shared_menu(app: &AppHandle) -> tauri::Result<ManagedApp> {
     let perm_help = MenuItem::with_id(
         app,
         "window:perm_help",
-        "🔐 开启全局键鼠监听权限…",
+        "🔐 输入监控权限…",
         true,
         None::<&str>,
     )?;
@@ -442,14 +511,13 @@ fn build_shared_menu(app: &AppHandle) -> tauri::Result<ManagedApp> {
             &view_sunny,
             &view_daisy,
             &view_kuro,
-            &view_all,
             &sep1,
             &feed_submenu,
             &act_pet,
             &act_nap,
             &sep2,
             &desk_submenu,
-            &scale_submenu,
+            &size_controls,
             &chk_top,
             &chk_pass,
             &chk_sound,
@@ -470,14 +538,13 @@ fn build_shared_menu(app: &AppHandle) -> tauri::Result<ManagedApp> {
             &view_sunny,
             &view_daisy,
             &view_kuro,
-            &view_all,
             &sep1,
             &feed_submenu,
             &act_pet,
             &act_nap,
             &sep2,
             &desk_submenu,
-            &scale_submenu,
+            &size_controls,
             &chk_top,
             &chk_pass,
             &chk_sound,
@@ -498,12 +565,8 @@ fn build_shared_menu(app: &AppHandle) -> tauri::Result<ManagedApp> {
         view_sunny,
         view_daisy,
         view_kuro,
-        view_all,
         desk_user,
         desk_dog,
-        scale_75,
-        scale_100,
-        scale_130,
         chk_top,
         chk_pass,
         chk_sound,
@@ -516,7 +579,10 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             show_pet_context_menu,
             start_pet_drag,
-            sync_pet_preferences
+            set_holding_treat,
+            sync_pet_preferences,
+            get_pet_scale,
+            set_pet_scale
         ])
         .on_menu_event(|app, event| {
             handle_menu_command(app, event.id().as_ref());
@@ -526,8 +592,7 @@ pub fn run() {
             {
                 // Live cleanly on Desktop + Top Menu Bar without cluttering the macOS Dock!
                 app.set_activation_policy(tauri::ActivationPolicy::Accessory);
-                // Prompt once on first launch if Accessibility / Input Monitoring is not enabled yet
-                let _ = input_hook::is_accessibility_trusted(true);
+                input_hook::request_input_monitoring();
             }
 
             let handle = app.handle().clone();
@@ -550,7 +615,8 @@ pub fn run() {
 
             if let Some(win) = app.get_webview_window("main") {
                 let _ = win.set_always_on_top(true);
-                place_window_bottom_right(&win, "sunny", 100);
+                let scale = runtime_arc.lock().map(|st| st.scale_pct).unwrap_or(DEFAULT_SCALE);
+                place_window_bottom_right(&win, scale);
             }
 
             app.manage(managed);

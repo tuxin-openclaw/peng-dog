@@ -305,17 +305,14 @@
 <body class="theme-light">
   <header class="hud-top">
     <nav class="char-switcher" aria-label="切换小狗形象">
-      <button type="button" class="char-tab is-active" data-view="all" aria-pressed="true">
-        <span>🐾</span><span>三只同框</span>
-      </button>
-      <button type="button" class="char-tab" data-view="sunny" aria-pressed="false">
-        <span>🕶️</span><span>墨镜金毛</span>
-      </button>
       <button type="button" class="char-tab" data-view="daisy" aria-pressed="false">
         <span>🌼</span><span>蓝巾小柴</span>
       </button>
       <button type="button" class="char-tab" data-view="kuro" aria-pressed="false">
         <span>🖤</span><span>歪头黑柴</span>
+      </button>
+      <button type="button" class="char-tab is-active" data-view="sunny" aria-pressed="true">
+        <span>🕶️</span><span>墨镜金毛</span>
       </button>
     </nav>
 
@@ -352,8 +349,8 @@
     </div>
 
     <div class="hud-actions">
-      <button type="button" class="hud-btn" id="deskDirBtn" title="切换键鼠朝向：面向用户（鼠标在右）/ 面向狗狗（鼠标在左）">
-        <span id="deskDirIcon">👀</span><span id="deskDirLabel">面向用户</span>
+      <button type="button" class="hud-btn" id="deskDirBtn" aria-pressed="true" title="切换键鼠朝向：面向狗狗（鼠标在左）/ 面向主人（鼠标在右）">
+        <span id="deskDirIcon">🐶</span><span id="deskDirLabel">面向狗狗</span>
       </button>
       <button type="button" class="hud-btn" id="soundToggle" aria-pressed="false" title="开启或关闭敲键/投喂/气泡音效">
         <span id="soundIcon">🔇</span><span id="soundLabel">音效关</span>
@@ -372,17 +369,14 @@
   <!-- Shared Web Right-Click Dropdown Menu (mirrors Tauri native menu commands) -->
   <div class="pet-context-menu" id="webContextMenu" role="menu" aria-label="小狗互动菜单">
     <div class="ctx-group-title">切换小狗</div>
-    <button type="button" class="ctx-item" data-cmd-action="set-view" data-cmd-val="sunny">
-      <span>🕶️ 墨镜金毛</span><span class="ctx-check" data-chk-view="sunny"></span>
-    </button>
     <button type="button" class="ctx-item" data-cmd-action="set-view" data-cmd-val="daisy">
       <span>🌼 蓝巾小柴</span><span class="ctx-check" data-chk-view="daisy"></span>
     </button>
     <button type="button" class="ctx-item" data-cmd-action="set-view" data-cmd-val="kuro">
       <span>🖤 歪头黑柴</span><span class="ctx-check" data-chk-view="kuro"></span>
     </button>
-    <button type="button" class="ctx-item" data-cmd-action="set-view" data-cmd-val="all">
-      <span>🐾 三只同框</span><span class="ctx-check" data-chk-view="all"></span>
+    <button type="button" class="ctx-item" data-cmd-action="set-view" data-cmd-val="sunny">
+      <span>🕶️ 墨镜金毛</span><span class="ctx-check" data-chk-view="sunny">✓</span>
     </button>
     <div class="ctx-sep"></div>
     <div class="ctx-group-title">切换状态</div>
@@ -409,11 +403,11 @@
     <button type="button" class="ctx-item" data-cmd-action="pet-head" data-cmd-val=""><span>💕 摸摸头夸夸</span></button>
     <div class="ctx-sep"></div>
     <div class="ctx-group-title">键鼠朝向</div>
-    <button type="button" class="ctx-item" data-cmd-action="set-desk-dir" data-cmd-val="user">
-      <span>👀 面向用户（鼠标在右）</span><span class="ctx-check" data-chk-desk="user">✓</span>
-    </button>
     <button type="button" class="ctx-item" data-cmd-action="set-desk-dir" data-cmd-val="dog">
-      <span>🐶 面向狗狗（鼠标在左）</span><span class="ctx-check" data-chk-desk="dog"></span>
+      <span>🐶 面向狗狗（鼠标在左）</span><span class="ctx-check" data-chk-desk="dog">✓</span>
+    </button>
+    <button type="button" class="ctx-item" data-cmd-action="set-desk-dir" data-cmd-val="user">
+      <span>👀 面向主人（鼠标在右）</span><span class="ctx-check" data-chk-desk="user"></span>
     </button>
     <div class="ctx-sep"></div>
     <button type="button" class="ctx-item" data-cmd-action="toggle-sound" data-cmd-val="">

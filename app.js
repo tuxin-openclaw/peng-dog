@@ -39,12 +39,9 @@
     document.body.classList.add('is-desktop-pet');
   }
 
-  let currentView = IS_DESKTOP_PET
-    ? localStorage.getItem('peng_pet_view') || 'sunny'
-    : 'all';
-  let deskDir = 'user';
+  let deskDir = 'dog';
   try {
-    if (localStorage.getItem('peng_pet_desk_dir') === 'dog') deskDir = 'dog';
+    if (localStorage.getItem('peng_pet_desk_dir') === 'user') deskDir = 'user';
   } catch (_) {}
   const isMouseOnLeft = () => deskDir === 'dog';
   let isDarkTheme = false;
@@ -53,8 +50,7 @@
   let lastSyncedUiState = 'normal';
 
   function getStageDims() {
-    if (!IS_DESKTOP_PET) return { w: 1320, h: 700 };
-    return currentView === 'all' ? { w: 1280, h: 520 } : { w: 430, h: 525 };
+    return IS_DESKTOP_PET ? { w: 430, h: 525 } : { w: 1320, h: 700 };
   }
 
   const viewport = {
@@ -531,6 +527,9 @@
   const SHOULDER_Y = -94;
   const LEFT_SQUAT_HOME_Y = -8;
   const RIGHT_SQUAT_HOME_Y = -8;
+  const PUPPY_BODY_BOUNDS = { centerY: -145, halfWidth: 132, halfHeight: 185 };
+  const GAZE_RANGE_PX = 120;
+  const GAZE_FADE_PX = 30;
 
   const isMac = /Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent);
 
@@ -804,6 +803,19 @@
 
   const dogsList = CHARACTER_DEFS.map(createDogInstance);
   const dogsById = new Map(dogsList.map((d) => [d.id, d]));
+  let currentView = loadInitialView();
+
+  function loadInitialView() {
+    const defaultView = 'sunny';
+    if (IS_DESKTOP_PET) {
+      try {
+        const savedView = localStorage.getItem('peng_pet_view');
+        if (dogsById.has(savedView)) return savedView;
+        if (savedView !== null) localStorage.setItem('peng_pet_view', defaultView);
+      } catch (_) {}
+    }
+    return defaultView;
+  }
 
   const inputState = {
     time: 0,
@@ -907,35 +919,12 @@
 
   function getActivePlacements() {
     const { w: stageW } = getStageDims();
-    if (IS_DESKTOP_PET) {
-      if (currentView === 'all') {
-        const count = dogsList.length;
-        const spacing = 415;
-        const startX = stageW * 0.5 - ((count - 1) * spacing) * 0.5;
-        return dogsList.map((dog, idx) => ({
-          dog,
-          cx: startX + idx * spacing,
-          baseY: 408,
-          scale: 0.92,
-        }));
-      }
-      const target = dogsById.get(currentView) || dogsList[0];
-      return [{ dog: target, cx: stageW * 0.5, baseY: 412, scale: 0.98 }];
-    }
-
-    if (currentView === 'all') {
-      const count = dogsList.length;
-      const spacing = 425;
-      const startX = stageW * 0.5 - ((count - 1) * spacing) * 0.5;
-      return dogsList.map((dog, idx) => ({
-        dog,
-        cx: startX + idx * spacing,
-        baseY: 446,
-        scale: 0.94,
-      }));
-    }
-    const target = dogsById.get(currentView) || dogsList[0];
-    return [{ dog: target, cx: stageW * 0.5, baseY: 446, scale: 1.16 }];
+    return [{
+      dog: dogsById.get(currentView),
+      cx: stageW * 0.5,
+      baseY: IS_DESKTOP_PET ? 412 : 446,
+      scale: IS_DESKTOP_PET ? 0.98 : 1.16,
+    }];
   }
 
   // Hit-test if stage coordinates (sx, sy) are over any puppy's head or body
@@ -943,9 +932,9 @@
     for (const p of getActivePlacements()) {
       const st = p.dog.state;
       const cx = p.cx + (DOG_X + st.leanX) * p.scale;
-      const cy = p.baseY - 145 * p.scale;
-      const rx = 132 * p.scale;
-      const ry = 185 * p.scale;
+      const cy = p.baseY + PUPPY_BODY_BOUNDS.centerY * p.scale;
+      const rx = PUPPY_BODY_BOUNDS.halfWidth * p.scale;
+      const ry = PUPPY_BODY_BOUNDS.halfHeight * p.scale;
       if (Math.pow((sx - cx) / rx, 2) + Math.pow((sy - cy) / ry, 2) <= 1.0) {
         return p;
       }
@@ -1058,6 +1047,38 @@
     return best;
   }
 
+  // Click-to-feed accepts clicking anywhere on the puppy's head or body
+  function resolveClickToFeedHit(sx, sy) {
+    const direct = findFeedTargetPlacement(sx, sy);
+    if (direct) return direct;
+    const bodyPlacement = findHoveredPuppyPlacement(sx, sy);
+    if (!bodyPlacement) return null;
+    const st = bodyPlacement.dog.state;
+    const mx = bodyPlacement.cx + (DOG_X + st.leanX + st.lookX * 14) * bodyPlacement.scale;
+    const my = bodyPlacement.baseY + (-178 + st.lookY * 9) * bodyPlacement.scale;
+    return {
+      placement: bodyPlacement,
+      mx,
+      my,
+      dist: Math.hypot(sx - mx, sy - my),
+      proximity: 0.7,
+    };
+  }
+
+  function getVisibleTreatStagePos() {
+    if (!IS_DESKTOP_PET) {
+      return { x: inputState.pointerStageX, y: inputState.pointerStageY };
+    }
+    const { w: stageW, h: stageH } = getStageDims();
+    return {
+      x: clamp(inputState.pointerStageX, 46, stageW - 46),
+      y: clamp(inputState.pointerStageY, 54, stageH - 46),
+    };
+  }
+
+  let lastTreatCancelStamp = 0;
+  let lastTreatClickStamp = 0;
+
   function syncTreatUI() {
     const activeType = inputState.activeTreat ? inputState.activeTreat.type : null;
     for (const btn of treatBtns) {
@@ -1068,8 +1089,13 @@
   function cancelActiveTreat() {
     if (!inputState.activeTreat) return;
     inputState.activeTreat = null;
+    lastTreatCancelStamp = performance.now();
     syncTreatUI();
+    syncStateUI();
     canvas.style.cursor = 'default';
+    if (IS_TAURI) {
+      tauriInvoke('set_holding_treat', { holding: false });
+    }
   }
 
   // Wake sleeping/yawning puppies — bursting snot bubbles if they were nodding off!
@@ -1122,10 +1148,11 @@
 
     wakeFromIdle(false);
 
+    const startPos = getVisibleTreatStagePos();
     inputState.eatingTreats.push({
       type: treatType,
-      startX: inputState.pointerStageX,
-      startY: inputState.pointerStageY,
+      startX: startPos.x,
+      startY: startPos.y,
       targetX: mx,
       targetY: my,
       life: 0,
@@ -1225,13 +1252,12 @@
     }
 
     const { w: stageW } = getStageDims();
-    const placements = getActivePlacements();
-    const anchorPlacement = placements[Math.floor(placements.length * 0.5)];
+    const [anchorPlacement] = getActivePlacements();
     const keyUX = keyObj ? keyObj.ux : KB_LOCAL.cx;
     const keyUY = keyObj ? keyObj.uy : KB_LOCAL.cy;
     const startPos = unitToStage(anchorPlacement, keyUX, keyUY - 8);
 
-    const compactSingle = IS_DESKTOP_PET && currentView !== 'all';
+    const compactSingle = IS_DESKTOP_PET;
     const popupScale = compactSingle ? 0.72 : 1.0;
     const boxH = Math.round(74 * popupScale);
     const boxW = Math.round(74 * displayInfo.widthFactor * popupScale);
@@ -1244,26 +1270,6 @@
       const normKeyX = clamp((keyUX - KB_LOCAL.cx) / (KB_LOCAL.w * 0.5), -1, 1);
       targetX = clamp(stageW * 0.5 - 38 + normKeyX * 72, boxW * 0.5 + 12, stageW - boxW * 0.5 - 120);
       targetY = 52;
-    } else if (currentView === 'all') {
-      const normKeyX = clamp((keyUX - KB_LOCAL.cx) / (KB_LOCAL.w * 0.5), -1, 1);
-      targetX = stageW * 0.5 + normKeyX * 260;
-      targetY = IS_DESKTOP_PET ? 62 : 106;
-
-      const fresh = inputState.popups.filter((p) => p.fadeProgress < 0.45);
-      for (let attempt = 0; attempt < 6; attempt++) {
-        let overlap = false;
-        for (const other of fresh) {
-          const minX = (boxW + other.w) * 0.5 + 14;
-          const minY = 66;
-          if (Math.abs(targetX - other.targetX) < minX && Math.abs(targetY - other.targetY) < minY) {
-            const dir = attempt % 2 === 0 ? 1 : -1;
-            targetX += dir * (minX + 6) * Math.ceil((attempt + 1) / 2);
-            targetX = clamp(targetX, 90 + boxW * 0.5, stageW - 90 - boxW * 0.5);
-            overlap = true;
-          }
-        }
-        if (!overlap) break;
-      }
     } else {
       targetX = isLeftSide
         ? clamp(235 + (keyUX - KB_LOCAL.cx) * 0.35, 95 + boxW * 0.5, 355 - boxW * 0.5)
@@ -1386,7 +1392,7 @@
       const faceDog = deskDir === 'dog';
       deskDirBtn.setAttribute('aria-pressed', String(faceDog));
       if (deskDirIconEl) deskDirIconEl.textContent = faceDog ? '🐶' : '👀';
-      if (deskDirLabelEl) deskDirLabelEl.textContent = faceDog ? '面向狗狗' : '面向用户';
+      if (deskDirLabelEl) deskDirLabelEl.textContent = faceDog ? '面向狗狗' : '面向主人';
     }
     if (ctxChkSoundEl) ctxChkSoundEl.textContent = soundEnabled ? '✓' : '';
     if (ctxChkPopupsEl) ctxChkPopupsEl.textContent = showKeyPopups ? '✓' : '';
@@ -1463,7 +1469,7 @@
       statusHintEl.textContent =
         deskDir === 'dog'
           ? '已切换键鼠朝向：🐶 面向狗狗（键鼠旋转 180°，鼠标移至左侧由狗狗右爪操控）'
-          : '已切换键鼠朝向：👀 面向用户（键鼠正对屏幕，鼠标位于右侧）';
+          : '已切换键鼠朝向：👀 面向主人（键鼠正对屏幕，鼠标位于右侧）';
     }
     drawScene();
   }
@@ -1484,6 +1490,8 @@
   }
 
   function setView(viewId) {
+    const activeDog = dogsById.get(viewId);
+    if (!activeDog) return;
     currentView = viewId;
     if (IS_DESKTOP_PET) {
       try {
@@ -1506,11 +1514,8 @@
       if (dog.def.face.sunglasses) dog.state.glintProgress = 0.01;
     }
 
-    const activeDog = dogsById.get(viewId);
     if (statusHintEl) {
-      statusHintEl.textContent = activeDog
-        ? `已切换：${activeDog.name} · 右键小狗弹出菜单，摸摸头解锁笑柴表情`
-        : '右键小狗弹出功能菜单 · 鼠标摸摸头解锁开心大笑表情 💕';
+      statusHintEl.textContent = `已切换：${activeDog.name} · 右键小狗弹出菜单，摸摸头解锁笑柴表情`;
     }
     drawScene();
   }
@@ -1638,16 +1643,53 @@
     setDogState('sleepy', { toggleOnSame: true });
   }
 
-  function feedActivePuppiesDirect(treatType) {
-    const placements = getActivePlacements();
-    const targetPlacement = placements[Math.floor(placements.length * 0.5)];
-    if (!targetPlacement) return;
-    const st = targetPlacement.dog.state;
-    const mx = targetPlacement.cx + (DOG_X + st.leanX + st.lookX * 14) * targetPlacement.scale;
-    const my = targetPlacement.baseY + (-178 + st.lookY * 9) * targetPlacement.scale;
-    inputState.pointerStageX = mx;
-    inputState.pointerStageY = my - 130 * targetPlacement.scale;
-    feedPuppy({ placement: targetPlacement, mx, my, dist: 0, proximity: 1 }, treatType || 'bone');
+  function selectTreatForFeeding(treatType) {
+    const chosen = TREAT_META[treatType] ? treatType : 'bone';
+    if (inputState.activeTreat && inputState.activeTreat.type === chosen) {
+      cancelActiveTreat();
+      if (statusHintEl) statusHintEl.textContent = '已收起小零食';
+      drawScene();
+      return;
+    }
+
+    wakeFromIdle(false);
+    if (!inputState.pointerInWindow) {
+      const { w: stageW } = getStageDims();
+      inputState.pointerStageX = stageW * 0.5;
+      inputState.pointerStageY = 82;
+    }
+
+    inputState.activeTreat = {
+      type: chosen,
+      startX: 0,
+      startY: 0,
+      wasDragged: false,
+      clickHeld: true,
+      pickedStamp: performance.now(),
+    };
+
+    for (const { dog } of getActivePlacements()) {
+      const st = dog.state;
+      st.bounce = 0.85;
+      st.leftEarKick = 0.88;
+      st.rightEarKick = 0.88;
+      st.excitement = Math.max(st.excitement, 0.82);
+      if (dog.def.face.sunglasses) st.glintProgress = 0.01;
+    }
+
+    syncTreatUI();
+    syncStateUI();
+    canvas.style.cursor = 'grabbing';
+    if (IS_TAURI) {
+      tauriInvoke('set_holding_treat', { holding: true });
+    }
+    playMouseClickSound(true);
+
+    const meta = TREAT_META[chosen];
+    if (statusHintEl) {
+      statusHintEl.textContent = `已拿起${meta.name} · 小狗馋得流口水啦，点击小狗即可投喂（右键取消）🍖`;
+    }
+    drawScene();
   }
 
   function petActivePuppiesDirect() {
@@ -1679,7 +1721,7 @@
         if (value) setDogState(value, { toggleOnSame: false });
         break;
       case 'feed':
-        feedActivePuppiesDirect(value || 'bone');
+        selectTreatForFeeding(value || 'bone');
         break;
       case 'pet-head':
         petActivePuppiesDirect();
@@ -1820,8 +1862,13 @@
         startY: e.clientY,
         wasDragged: false,
         clickHeld: false,
+        pickedStamp: performance.now(),
       };
       syncTreatUI();
+      syncStateUI();
+      if (IS_TAURI) {
+        tauriInvoke('set_holding_treat', { holding: true });
+      }
       canvas.style.cursor = 'grabbing';
       const meta = TREAT_META[treatType] || TREAT_META.bone;
       statusHintEl.textContent = `已拿起${meta.name} · 拖到小狗嘴边松手（或直接点击小狗）投喂 🍖`;
@@ -1947,7 +1994,7 @@
           inputState.combo >= 60 ? sparkColor : '#FFA234',
           Math.max(18, keyObj.w * p.scale * 0.72)
         );
-        spawnSparkles(pos.sx, pos.sy - 3, sparkColor, placements.length > 1 ? 3 : 5);
+        spawnSparkles(pos.sx, pos.sy - 3, sparkColor, 5);
       }
 
       playKeySound(keyObj.w >= 1.75);
@@ -2092,7 +2139,7 @@
       for (const p of placements) {
         const mPos = unitToStage(p, inputState.mouseLX - 11 * mSign, inputState.mouseLY - 14 * mSign);
         spawnRipple(mPos.sx, mPos.sy, '#FF7849', 34 * p.scale);
-        spawnSparkles(mPos.sx, mPos.sy, '#FF7849', placements.length > 1 ? 3 : 5);
+        spawnSparkles(mPos.sx, mPos.sy, '#FF7849', 5);
         spawnMouseBadge(mPos.sx - 8 * mSign, mPos.sy + 58 * p.scale, '左键', '#FF6B42');
       }
       playMouseClickSound(false);
@@ -2103,7 +2150,7 @@
       for (const p of placements) {
         const mPos = unitToStage(p, inputState.mouseLX + 11 * mSign, inputState.mouseLY - 14 * mSign);
         spawnRipple(mPos.sx, mPos.sy, '#38BDF8', 34 * p.scale);
-        spawnSparkles(mPos.sx, mPos.sy, '#38BDF8', placements.length > 1 ? 3 : 5);
+        spawnSparkles(mPos.sx, mPos.sy, '#38BDF8', 5);
         spawnMouseBadge(mPos.sx + 8 * mSign, mPos.sy + 58 * p.scale, '右键', '#0EA5E9');
       }
       playMouseClickSound(true);
@@ -2202,16 +2249,21 @@
 
     // Handle click-to-feed or right-click cancel when holding a treat
     if (inputState.activeTreat) {
+      if (performance.now() - (inputState.activeTreat.pickedStamp || 0) < 120) {
+        return;
+      }
       if (e.button === 2) {
+        lastTreatClickStamp = performance.now();
         cancelActiveTreat();
         if (statusHintEl) statusHintEl.textContent = '已取消投喂';
         return;
       }
       if (e.button === 0 && inputState.activeTreat.clickHeld) {
-        const feedHit = findFeedTargetPlacement(inputState.pointerStageX, inputState.pointerStageY);
+        lastTreatClickStamp = performance.now();
+        const feedHit = resolveClickToFeedHit(inputState.pointerStageX, inputState.pointerStageY);
         if (feedHit) {
           feedPuppy(feedHit, inputState.activeTreat.type);
-        } else {
+        } else if (!IS_DESKTOP_PET) {
           cancelActiveTreat();
           if (statusHintEl) statusHintEl.textContent = '已收起小零食';
         }
@@ -2299,7 +2351,7 @@
 
   window.addEventListener('contextmenu', (e) => {
     e.preventDefault();
-    if (inputState.activeTreat) return;
+    if (inputState.activeTreat || performance.now() - lastTreatCancelStamp < 260) return;
 
     // 1. Tauri Desktop Pet: pop up Native OS Dropdown Context Menu!
     if (IS_TAURI) {
@@ -2510,8 +2562,10 @@
       const targetDrool = (inputState.activeTreat || isForcedDrool) && st.chewTimer <= 0 ? 1 : 0;
       const targetAnticipation =
         st.chewTimer <= 0
-          ? isTreatTarget
-            ? clamp(treatFeedHit.proximity * 1.45, 0, 1)
+          ? inputState.activeTreat
+            ? isTreatTarget
+              ? clamp(0.65 + treatFeedHit.proximity * 0.42, 0.65, 1)
+              : 0.65
             : isForcedDrool
               ? 0.88
               : 0
@@ -2566,7 +2620,7 @@
       st.leanX = lerp(st.leanX, st.targetLeanX, 1 - Math.exp(-dt * 9));
       st.targetLeanX *= Math.exp(-dt * 2.0);
 
-      // Continuous per-puppy 2.5D head & eye gaze tracking (stares eagerly at treat, or relaxes when asleep!)
+      // Look towards nearby cursors, treats, or the keyboard during a key press.
       if (st.sleepBlend > 0.35) {
         st.targetLookX = 0;
         st.targetLookY = 0.28;
@@ -2579,8 +2633,18 @@
         if (inputState.pointerInWindow && placement) {
           const headStageX = placement.cx + (DOG_X + st.leanX) * placement.scale;
           const headStageY = placement.baseY - 204 * placement.scale;
-          st.targetLookX = clamp((inputState.pointerStageX - headStageX) / 290, -1, 1);
-          st.targetLookY = clamp((inputState.pointerStageY - headStageY) / 220, -1, 1);
+          const dx = (inputState.pointerStageX - headStageX) / placement.scale;
+          const dy = (inputState.pointerStageY - headStageY) / placement.scale;
+          const bodyY = (inputState.pointerStageY - placement.baseY) / placement.scale;
+          const outsideX = Math.max(0, Math.abs(dx) - PUPPY_BODY_BOUNDS.halfWidth);
+          const outsideY = Math.max(0, Math.abs(bodyY - PUPPY_BODY_BOUNDS.centerY) - PUPPY_BODY_BOUNDS.halfHeight);
+          // Use screen pixels for the margin, independently of canvas resolution and pet size.
+          const localToPhysical = placement.scale * viewport.scale * (window.devicePixelRatio || 1);
+          const outsidePx = Math.hypot(outsideX, outsideY) * localToPhysical;
+          const edge = clamp((outsidePx - (GAZE_RANGE_PX - GAZE_FADE_PX)) / GAZE_FADE_PX, 0, 1);
+          const attention = 1 - edge * edge * (3 - 2 * edge);
+          st.targetLookX = clamp(dx / 220, -1, 1) * attention;
+          st.targetLookY = clamp(dy / 180, -1, 1) * attention;
         } else {
           st.targetLookX = 0;
           st.targetLookY = 0;
@@ -5052,33 +5116,8 @@
   }
 
   // =========================================================================
-  // Stage-Space Captions, Effects & Enlarged Keycap Popups
+  // Stage-Space Effects & Enlarged Keycap Popups
   // =========================================================================
-  function drawTrioCaptions(placements) {
-    if (IS_DESKTOP_PET || currentView !== 'all') return;
-
-    ctx.save();
-    for (const p of placements) {
-      const y = p.baseY + 124;
-      const pillW = 136;
-      const pillH = 28;
-
-      roundRectPath(ctx, p.cx - pillW * 0.5, y - pillH * 0.5, pillW, pillH, 14);
-      ctx.fillStyle = isDarkTheme ? 'rgba(34, 42, 58, 0.8)' : 'rgba(255, 255, 255, 0.8)';
-      ctx.fill();
-      ctx.strokeStyle = isDarkTheme ? 'rgba(255,255,255,0.12)' : 'rgba(130, 160, 200, 0.3)';
-      ctx.lineWidth = 1.2;
-      ctx.stroke();
-
-      ctx.font = '600 13px -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillStyle = isDarkTheme ? '#E6ECF5' : '#334155';
-      ctx.fillText(p.dog.name, p.cx, y + 0.5);
-    }
-    ctx.restore();
-  }
-
   function drawStageEffects() {
     for (const r of inputState.ripples) {
       const t = r.life / r.maxLife;
@@ -5335,16 +5374,48 @@
     }
 
     if (inputState.activeTreat) {
+      const pos = getVisibleTreatStagePos();
       const wiggle = Math.sin(inputState.time * 8.5) * 0.14;
       const pulse = 1.08 + Math.sin(inputState.time * 6) * 0.05;
-      drawVectorTreat(
-        ctx,
-        inputState.activeTreat.type,
-        inputState.pointerStageX,
-        inputState.pointerStageY,
-        pulse,
-        -0.22 + wiggle
-      );
+
+      // Warm appetizing glow halo around the held treat
+      ctx.save();
+      const glow = ctx.createRadialGradient(pos.x, pos.y, 4, pos.x, pos.y, 38);
+      glow.addColorStop(0, 'rgba(255, 204, 92, 0.48)');
+      glow.addColorStop(1, 'rgba(255, 204, 92, 0)');
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      ctx.arc(pos.x, pos.y, 38, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+
+      drawVectorTreat(ctx, inputState.activeTreat.type, pos.x, pos.y, pulse, -0.22 + wiggle);
+
+      if (IS_DESKTOP_PET) {
+        const overDog = Boolean(
+          resolveClickToFeedHit(inputState.pointerStageX, inputState.pointerStageY)
+        );
+        const hintText = overDog ? '点击喂我 😋' : '点小狗投喂';
+        const pillW = 86;
+        const pillH = 22;
+        const pillX = clamp(pos.x, pillW * 0.5 + 8, getStageDims().w - pillW * 0.5 - 8);
+        const pillY = pos.y > 78 ? pos.y - 34 : pos.y + 34;
+
+        ctx.save();
+        roundRectPath(ctx, pillX - pillW * 0.5, pillY - pillH * 0.5, pillW, pillH, 11);
+        ctx.fillStyle = overDog ? 'rgba(245, 158, 11, 0.94)' : 'rgba(30, 41, 59, 0.82)';
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+        ctx.lineWidth = 1.4;
+        ctx.stroke();
+
+        ctx.font = '700 11.5px -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillText(hintText, pillX, pillY + 0.5);
+        ctx.restore();
+      }
     }
   }
 
@@ -5357,7 +5428,7 @@
     const isTurbo = cVal >= 30;
     const isWarm = cVal >= 10;
 
-    const compactPet = IS_DESKTOP_PET && currentView !== 'all';
+    const compactPet = IS_DESKTOP_PET;
     const baseScale = compactPet ? 0.76 : 1.0;
     const x = compactPet ? stageW - 96 : stageW - 142;
     const y = IS_DESKTOP_PET ? 34 : 52;
@@ -5547,7 +5618,6 @@
       drawPuppyWorkstation(ctx, p, false);
     }
 
-    drawTrioCaptions(placements);
     drawStageEffects();
     drawStageTreats();
     drawEnlargedKeyPopups();
@@ -5611,6 +5681,16 @@
             inputState.idleTime = 0;
           }
 
+          if (inputState.activeTreat) {
+            canvas.style.cursor = resolveClickToFeedHit(
+              inputState.pointerStageX,
+              inputState.pointerStageY
+            )
+              ? 'pointer'
+              : 'grabbing';
+            break;
+          }
+
           if (p.in_pet_bounds) {
             const headHit = findHoveredHeadPlacement(inputState.pointerStageX, inputState.pointerStageY);
             if (headHit) {
@@ -5631,6 +5711,28 @@
           break;
         }
         case 'mouse-down':
+          if (inputState.activeTreat) {
+            if (
+              performance.now() - (inputState.activeTreat.pickedStamp || 0) >= 120 &&
+              performance.now() - lastTreatClickStamp > 80
+            ) {
+              if (p.button === 2) {
+                lastTreatClickStamp = performance.now();
+                cancelActiveTreat();
+              } else if (p.button === 0 && p.in_pet_bounds) {
+                lastTreatClickStamp = performance.now();
+                updatePointerStagePos(p.win_rel_x, p.win_rel_y);
+                const feedHit = resolveClickToFeedHit(
+                  inputState.pointerStageX,
+                  inputState.pointerStageY
+                );
+                if (feedHit) {
+                  feedPuppy(feedHit, inputState.activeTreat.type);
+                }
+              }
+            }
+            break;
+          }
           // Clicks outside the pet window (in other apps!) animate the puppy's desk mouse L/R/M buttons!
           if (!p.in_pet_bounds) {
             wakeFromIdle(true);

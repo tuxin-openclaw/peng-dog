@@ -24,6 +24,8 @@ pub enum GlobalInputEvent {
     },
     MouseDown {
         button: u8,
+        win_rel_x: f64,
+        win_rel_y: f64,
         in_pet_bounds: bool,
     },
     MouseUp {
@@ -42,12 +44,12 @@ pub struct WindowSnapshot {
     pub win_w_logical: f64,
     pub win_h_logical: f64,
     pub scale_factor: f64,
-    pub is_trio: bool,
     pub passthrough_locked: bool,
+    pub holding_treat: bool,
 }
 
 impl WindowSnapshot {
-    pub fn from_window_and_state(win: &WebviewWindow, st: &PetRuntimeState) -> Option<Self> {
+    fn from_window(win: &WebviewWindow) -> Option<Self> {
         let scale = win.scale_factor().ok().unwrap_or(1.0).max(0.5);
         let pos = win.outer_position().ok()?;
         let size = win.outer_size().ok()?;
@@ -57,8 +59,7 @@ impl WindowSnapshot {
             win_w_logical: size.width as f64 / scale,
             win_h_logical: size.height as f64 / scale,
             scale_factor: scale,
-            is_trio: st.current_view == "all",
-            passthrough_locked: st.passthrough_locked,
+            ..Self::default()
         })
     }
 
@@ -79,13 +80,9 @@ impl WindowSnapshot {
         }
 
         // Top ~17% is transparent sky reserved for keycap popups / Zzz / Combo badge -> click-through!
-        let interactive = if self.is_trio {
-            ry >= 0.18 && ry <= 0.96 && rx >= 0.03 && rx <= 0.97
-        } else {
-            let in_main_box = ry >= 0.17 && ry <= 0.97 && rx >= 0.06 && rx <= 0.94;
-            let in_upper_empty_corner = ry < 0.36 && !(0.15..=0.85).contains(&rx);
-            in_main_box && !in_upper_empty_corner
-        };
+        let in_main_box = ry >= 0.17 && ry <= 0.97 && rx >= 0.06 && rx <= 0.94;
+        let in_upper_empty_corner = ry < 0.36 && !(0.15..=0.85).contains(&rx);
+        let interactive = in_main_box && !in_upper_empty_corner;
 
         (rel_x, rel_y, interactive)
     }
@@ -116,18 +113,20 @@ pub fn start_global_input_and_passthrough(
                     continue;
                 };
 
-                let (snap, menu_guard_active) = {
+                // Window queries wait for the UI thread. Never hold the state lock here.
+                let Some(mut snap) = WindowSnapshot::from_window(&win) else {
+                    continue;
+                };
+                let menu_guard_active = {
                     let Ok(guard) = state_clone.lock() else {
                         continue;
                     };
-                    let menu_active = guard
+                    snap.passthrough_locked = guard.passthrough_locked;
+                    snap.holding_treat = guard.holding_treat;
+                    guard
                         .pause_passthrough_until
                         .map(|until| Instant::now() < until)
-                        .unwrap_or(false);
-                    let Some(s) = WindowSnapshot::from_window_and_state(&win, &guard) else {
-                        continue;
-                    };
-                    (s, menu_active)
+                        .unwrap_or(false)
                 };
 
                 if let Ok(mut s_lock) = snap_clone.lock() {
@@ -142,7 +141,7 @@ pub fn start_global_input_and_passthrough(
 
                 let want_ignore = if menu_guard_active {
                     false
-                } else if snap.passthrough_locked {
+                } else if snap.passthrough_locked && !snap.holding_treat {
                     true
                 } else {
                     !interactive
@@ -182,7 +181,7 @@ pub fn start_global_input_and_passthrough(
 }
 
 // ============================================================================
-// macOS Implementation (CoreGraphics + ApplicationServices — Zero TIS Crash!)
+// macOS Implementation (CoreGraphics passive event tap)
 // ============================================================================
 #[cfg(target_os = "macos")]
 mod platform {
@@ -203,7 +202,6 @@ mod platform {
     type CFRunLoopSourceRef = *mut c_void;
     type CFRunLoopRef = *mut c_void;
     type CFStringRef = *const c_void;
-    type CFDictionaryRef = *const c_void;
     type CFAllocatorRef = *const c_void;
 
     const K_CG_SESSION_EVENT_TAP: u32 = 1;
@@ -261,15 +259,18 @@ mod platform {
             user_info: *mut c_void,
         ) -> CFMachPortRef;
         fn CGEventTapEnable(tap: CFMachPortRef, enable: bool);
+        fn CGEventTapIsEnabled(tap: CFMachPortRef) -> bool;
+        fn CGPreflightListenEventAccess() -> bool;
+        fn CGRequestListenEventAccess() -> bool;
     }
 
     #[link(name = "CoreFoundation", kind = "framework")]
     extern "C" {
-        static kCFBooleanTrue: *const c_void;
         static kCFRunLoopCommonModes: CFStringRef;
         static kCFRunLoopDefaultMode: CFStringRef;
 
         fn CFRelease(cf: *const c_void);
+        fn CFMachPortInvalidate(port: CFMachPortRef);
         fn CFMachPortCreateRunLoopSource(
             allocator: CFAllocatorRef,
             port: CFMachPortRef,
@@ -277,49 +278,29 @@ mod platform {
         ) -> CFRunLoopSourceRef;
         fn CFRunLoopGetCurrent() -> CFRunLoopRef;
         fn CFRunLoopAddSource(rl: CFRunLoopRef, source: CFRunLoopSourceRef, mode: CFStringRef);
+        fn CFRunLoopRemoveSource(rl: CFRunLoopRef, source: CFRunLoopSourceRef, mode: CFStringRef);
         fn CFRunLoopRunInMode(
             mode: CFStringRef,
             seconds: f64,
             return_after_source_handled: bool,
         ) -> i32;
-        fn CFDictionaryCreate(
-            allocator: CFAllocatorRef,
-            keys: *const *const c_void,
-            values: *const *const c_void,
-            num_values: isize,
-            key_callbacks: *const c_void,
-            value_callbacks: *const c_void,
-        ) -> CFDictionaryRef;
     }
 
-    #[link(name = "ApplicationServices", kind = "framework")]
-    extern "C" {
-        static kAXTrustedCheckOptionPrompt: CFStringRef;
-        fn AXIsProcessTrusted() -> bool;
-        fn AXIsProcessTrustedWithOptions(options: CFDictionaryRef) -> bool;
+    fn has_input_monitoring_access() -> bool {
+        unsafe { CGPreflightListenEventAccess() }
     }
 
-    pub fn is_accessibility_trusted(prompt: bool) -> bool {
-        unsafe {
-            if !prompt {
-                return AXIsProcessTrusted();
-            }
-            let keys = [kAXTrustedCheckOptionPrompt as *const c_void];
-            let values = [kCFBooleanTrue];
-            let dict = CFDictionaryCreate(
-                ptr::null(),
-                keys.as_ptr(),
-                values.as_ptr(),
-                1,
-                ptr::null(),
-                ptr::null(),
-            );
-            let trusted = AXIsProcessTrustedWithOptions(dict);
-            if !dict.is_null() {
-                CFRelease(dict as *const c_void);
-            }
-            trusted
+    pub fn request_input_monitoring() {
+        if !has_input_monitoring_access() {
+            unsafe { CGRequestListenEventAccess() };
         }
+    }
+
+    pub fn open_input_monitoring_settings() {
+        request_input_monitoring();
+        let _ = std::process::Command::new("/usr/bin/open")
+            .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent")
+            .spawn();
     }
 
     pub fn query_cursor_and_screen_logical(_scale: f64) -> Option<(f64, f64, f64, f64)> {
@@ -352,15 +333,18 @@ mod platform {
         event: CGEventRef,
         user_info: *mut c_void,
     ) -> CGEventRef {
-        if user_info.is_null() || event.is_null() {
+        if user_info.is_null() {
             return event;
         }
         let ctx = unsafe { &mut *(user_info as *mut TapContext) };
 
-        if etype == K_CG_EVENT_TAP_DISABLED_BY_TIMEOUT || etype == K_CG_EVENT_TAP_DISABLED_BY_USER {
+        if etype == K_CG_EVENT_TAP_DISABLED_BY_TIMEOUT {
             if !ctx.tap_port.is_null() {
                 unsafe { CGEventTapEnable(ctx.tap_port, true) };
             }
+            return event;
+        }
+        if etype == K_CG_EVENT_TAP_DISABLED_BY_USER || event.is_null() {
             return event;
         }
 
@@ -425,11 +409,11 @@ mod platform {
             }
             K_CG_EVENT_LEFT_MOUSE_DOWN | K_CG_EVENT_RIGHT_MOUSE_DOWN | K_CG_EVENT_OTHER_MOUSE_DOWN => {
                 let loc = unsafe { CGEventGetLocation(event) };
-                let in_pet = ctx
+                let (rel_x, rel_y, in_pet) = ctx
                     .snap
                     .lock()
-                    .map(|s| s.evaluate_cursor(loc.x, loc.y).2)
-                    .unwrap_or(false);
+                    .map(|s| s.evaluate_cursor(loc.x, loc.y))
+                    .unwrap_or((0.0, 0.0, false));
                 let button = match etype {
                     K_CG_EVENT_LEFT_MOUSE_DOWN => 0,
                     K_CG_EVENT_RIGHT_MOUSE_DOWN => 2,
@@ -439,6 +423,8 @@ mod platform {
                     "global-input",
                     GlobalInputEvent::MouseDown {
                         button,
+                        win_rel_x: rel_x,
+                        win_rel_y: rel_y,
                         in_pet_bounds: in_pet,
                     },
                 );
@@ -509,8 +495,8 @@ mod platform {
                 prev_flags: 0,
             });
 
-            // Retry loop: if Accessibility / Input Monitoring isn't granted yet, keep retrying cleanly!
             loop {
+                let has_listen_access = has_input_monitoring_access();
                 unsafe {
                     let user_ptr = (&mut *ctx_box) as *mut TapContext as *mut c_void;
                     let tap = CGEventTapCreate(
@@ -523,16 +509,28 @@ mod platform {
                     );
 
                     if !tap.is_null() {
-                        ctx_box.tap_port = tap;
                         let source = CFMachPortCreateRunLoopSource(ptr::null(), tap, 0);
-                        let rl = CFRunLoopGetCurrent();
-                        CFRunLoopAddSource(rl, source, kCFRunLoopCommonModes);
-                        CGEventTapEnable(tap, true);
-                        tap_active.store(true, Ordering::Relaxed);
-
-                        loop {
-                            CFRunLoopRunInMode(kCFRunLoopDefaultMode, 1.0, false);
+                        if !source.is_null() {
+                            ctx_box.tap_port = tap;
+                            ctx_box.prev_flags = 0;
+                            let rl = CFRunLoopGetCurrent();
+                            CFRunLoopAddSource(rl, source, kCFRunLoopCommonModes);
+                            CGEventTapEnable(tap, true);
+                            loop {
+                                tap_active.store(CGEventTapIsEnabled(tap), Ordering::Relaxed);
+                                CFRunLoopRunInMode(kCFRunLoopDefaultMode, 2.5, false);
+                                // macOS can allow a mouse-only tap until keyboard permission is granted.
+                                if has_input_monitoring_access() != has_listen_access {
+                                    break;
+                                }
+                            }
+                            tap_active.store(false, Ordering::Relaxed);
+                            CFRunLoopRemoveSource(rl, source, kCFRunLoopCommonModes);
+                            CFRelease(source);
+                            ctx_box.tap_port = ptr::null_mut();
                         }
+                        CFMachPortInvalidate(tap);
+                        CFRelease(tap);
                     }
                 }
 
@@ -663,10 +661,6 @@ mod platform {
 
     static WIN_STATE: OnceLock<WinHookState> = OnceLock::new();
 
-    pub fn is_accessibility_trusted(_prompt: bool) -> bool {
-        true
-    }
-
     pub fn query_cursor_and_screen_logical(scale: f64) -> Option<(f64, f64, f64, f64)> {
         unsafe {
             let mut pt = POINT { x: 0, y: 0 };
@@ -741,7 +735,7 @@ mod platform {
                         }
                     }
                     WM_LBUTTONDOWN | WM_RBUTTONDOWN | WM_MBUTTONDOWN => {
-                        let in_pet = snap_copy.evaluate_cursor(cx, cy).2;
+                        let (rel_x, rel_y, in_pet) = snap_copy.evaluate_cursor(cx, cy);
                         let button = match msg {
                             WM_LBUTTONDOWN => 0,
                             WM_RBUTTONDOWN => 2,
@@ -751,6 +745,8 @@ mod platform {
                             "global-input",
                             GlobalInputEvent::MouseDown {
                                 button,
+                                win_rel_x: rel_x,
+                                win_rel_y: rel_y,
                                 in_pet_bounds: in_pet,
                             },
                         );
@@ -906,9 +902,6 @@ mod platform {
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
 mod platform {
     use super::*;
-    pub fn is_accessibility_trusted(_prompt: bool) -> bool {
-        true
-    }
     pub fn query_cursor_and_screen_logical(_scale: f64) -> Option<(f64, f64, f64, f64)> {
         None
     }
@@ -920,5 +913,6 @@ mod platform {
     }
 }
 
-pub use platform::is_accessibility_trusted;
+#[cfg(target_os = "macos")]
+pub use platform::{open_input_monitoring_settings, request_input_monitoring};
 use platform::{query_cursor_and_screen_logical, spawn_platform_hook_thread};

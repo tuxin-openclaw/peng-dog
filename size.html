@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>桌宠尺寸</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      font: 14px system-ui, sans-serif;
+    }
+    body {
+      margin: 0;
+      padding: 20px;
+    }
+    .row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    label {
+      font-weight: 600;
+    }
+    output {
+      font-variant-numeric: tabular-nums;
+    }
+    input[type="range"] {
+      width: 100%;
+      margin: 13px 0;
+    }
+    button {
+      padding: 5px 10px;
+      font: inherit;
+    }
+    #status {
+      margin: 0;
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+  <div class="row">
+    <label for="size">桌宠大小</label>
+    <output id="value" for="size"></output>
+  </div>
+  <input id="size" type="range" step="1" disabled>
+  <div class="row">
+    <button id="reset" type="button" disabled>恢复标准</button>
+    <p id="status" role="status"></p>
+  </div>
+
+  <script>
+    const slider = document.getElementById('size');
+    const readout = document.getElementById('value');
+    const reset = document.getElementById('reset');
+    const status = document.getElementById('status');
+    const invoke = window.__TAURI__?.core.invoke;
+    let standard;
+    let pending;
+    let updating = false;
+
+    async function updateSize(save) {
+      const scalePct = slider.valueAsNumber;
+      readout.value = `${scalePct}%`;
+      pending = { scalePct, save: save || pending?.save === true };
+      if (updating) return;
+
+      updating = true;
+      while (pending) {
+        const next = pending;
+        pending = undefined;
+        try {
+          await invoke('set_pet_scale', next);
+          status.textContent = '';
+        } catch (_) {
+          status.textContent = next.save ? '未能保存尺寸' : '未能调整尺寸';
+        }
+      }
+      updating = false;
+    }
+
+    slider.addEventListener('input', () => updateSize(false));
+    slider.addEventListener('change', () => updateSize(true));
+    reset.addEventListener('click', () => {
+      slider.value = standard;
+      updateSize(true);
+    });
+
+    async function loadSize() {
+      try {
+        const settings = await invoke('get_pet_scale');
+        standard = settings.standard;
+        slider.min = settings.min;
+        slider.max = settings.max;
+        slider.value = settings.value;
+        readout.value = `${settings.value}%`;
+        slider.disabled = false;
+        reset.disabled = false;
+      } catch (_) {
+        status.textContent = '未能读取桌宠尺寸';
+      }
+    }
+    loadSize();
+  </script>
+</body>
+</html>

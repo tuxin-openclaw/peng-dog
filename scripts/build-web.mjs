@@ -8,8 +8,8 @@ const distDir = path.join(rootDir, 'dist');
 fs.rmSync(distDir, { recursive: true, force: true });
 fs.mkdirSync(distDir, { recursive: true });
 
-for (const file of ['index.html', 'app.js']) {
+for (const file of ['index.html', 'app.js', 'size.html']) {
   fs.copyFileSync(path.join(rootDir, file), path.join(distDir, file));
 }
 
-console.log('Prepared dist/ from shared root index.html + app.js');
+console.log('Prepared dist/ for PengDog');
