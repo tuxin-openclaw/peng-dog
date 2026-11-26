@@ -86,6 +86,7 @@
     }
 
     .char-switcher,
+    .state-bar,
     .treat-bar,
     .hud-actions {
       display: flex;
@@ -100,6 +101,7 @@
       -webkit-backdrop-filter: blur(14px);
     }
 
+    .bar-label,
     .treat-label {
       font-size: 12px;
       font-weight: 700;
@@ -109,6 +111,7 @@
     }
 
     .char-tab,
+    .state-btn,
     .treat-btn,
     .hud-btn {
       appearance: none;
@@ -129,6 +132,7 @@
     }
 
     .char-tab:hover,
+    .state-btn:hover,
     .hud-btn:hover {
       background: var(--tab-hover-bg);
     }
@@ -143,15 +147,41 @@
     }
 
     .char-tab:active,
+    .state-btn:active,
     .treat-btn:active,
     .hud-btn:active {
       transform: scale(0.95);
     }
 
-    .char-tab.is-active {
+    .char-tab.is-active,
+    .state-btn.is-active {
       background: var(--tab-active-bg);
       color: var(--tab-active-text);
       box-shadow: 0 3px 10px rgba(59, 130, 246, 0.28);
+    }
+
+    .state-btn[data-state="happy"].is-active {
+      background: #ec4899;
+      color: #ffffff;
+      box-shadow: 0 3px 10px rgba(236, 72, 153, 0.34);
+    }
+
+    .state-btn[data-state="drool"].is-active {
+      background: #0ea5e9;
+      color: #ffffff;
+      box-shadow: 0 3px 10px rgba(14, 165, 233, 0.34);
+    }
+
+    .state-btn[data-state="sleepy"].is-active {
+      background: #6366f1;
+      color: #ffffff;
+      box-shadow: 0 3px 10px rgba(99, 102, 241, 0.34);
+    }
+
+    .state-btn[data-state="overdrive"].is-active {
+      background: #f97316;
+      color: #ffffff;
+      box-shadow: 0 3px 10px rgba(249, 115, 22, 0.36);
     }
 
     .treat-btn.is-active {
@@ -257,10 +287,11 @@
     }
 
     @media (max-width: 860px) {
-      .char-tab, .treat-btn, .hud-btn {
+      .char-tab, .state-btn, .treat-btn, .hud-btn {
         font-size: 12px;
         padding: 5px 9px;
       }
+      .bar-label,
       .treat-label {
         display: none;
       }
@@ -288,6 +319,25 @@
       </button>
     </nav>
 
+    <div class="state-bar" role="group" aria-label="切换小狗状态">
+      <span class="bar-label">状态</span>
+      <button type="button" class="state-btn is-active" data-state="normal" aria-pressed="true" title="默认待机状态（正常响应键鼠与摸头，静置15秒自动犯困）">
+        <span>🐶</span><span>默认</span>
+      </button>
+      <button type="button" class="state-btn" data-state="happy" aria-pressed="false" title="切换开心笑柴状态（弯弯笑眼 + 害羞腮红 + 吐舌大笑）">
+        <span>😄</span><span>开心</span>
+      </button>
+      <button type="button" class="state-btn" data-state="drool" aria-pressed="false" title="切换馋嘴流口水状态（张嘴期待 + 口水滴 + 墨镜金毛星星眼）">
+        <span>🤤</span><span>馋嘴</span>
+      </button>
+      <button type="button" class="state-btn" data-state="sleepy" aria-pressed="false" title="切换犯困打瞌睡状态（打哈欠犯困吹鼻涕泡，再点立即熟睡，敲键/点击即可戳醒）">
+        <span>💤</span><span>犯困</span>
+      </button>
+      <button type="button" class="state-btn" data-state="overdrive" aria-pressed="false" title="切换狂暴连击状态（火焰气场 + RGB 彩虹键盘 + 努力汗珠）">
+        <span>🔥</span><span>狂暴</span>
+      </button>
+    </div>
+
     <div class="treat-bar" aria-label="投喂零食罐">
       <span class="treat-label">投喂</span>
       <button type="button" class="treat-btn" data-treat="bone" title="拖拽或点击拿起香脆骨头喂给小狗">
@@ -304,9 +354,6 @@
     <div class="hud-actions">
       <button type="button" class="hud-btn" id="deskDirBtn" title="切换键鼠朝向：面向用户（鼠标在右）/ 面向狗狗（鼠标在左）">
         <span id="deskDirIcon">👀</span><span id="deskDirLabel">面向用户</span>
-      </button>
-      <button type="button" class="hud-btn" id="napBtn" title="让小狗打哈欠犯困吹鼻涕泡（静置15秒也会自动打瞌睡，敲键/点击即可戳醒！）">
-        <span>💤</span><span>犯困</span>
       </button>
       <button type="button" class="hud-btn" id="soundToggle" aria-pressed="false" title="开启或关闭敲键/投喂/气泡音效">
         <span id="soundIcon">🔇</span><span id="soundLabel">音效关</span>
@@ -338,12 +385,28 @@
       <span>🐾 三只同框</span><span class="ctx-check" data-chk-view="all"></span>
     </button>
     <div class="ctx-sep"></div>
+    <div class="ctx-group-title">切换状态</div>
+    <button type="button" class="ctx-item" data-cmd-action="set-state" data-cmd-val="normal">
+      <span>🐶 默认待机</span><span class="ctx-check" data-chk-state="normal">✓</span>
+    </button>
+    <button type="button" class="ctx-item" data-cmd-action="set-state" data-cmd-val="happy">
+      <span>😄 开心笑柴</span><span class="ctx-check" data-chk-state="happy"></span>
+    </button>
+    <button type="button" class="ctx-item" data-cmd-action="set-state" data-cmd-val="drool">
+      <span>🤤 馋嘴流口水</span><span class="ctx-check" data-chk-state="drool"></span>
+    </button>
+    <button type="button" class="ctx-item" data-cmd-action="set-state" data-cmd-val="sleepy">
+      <span>💤 犯困吹鼻涕泡</span><span class="ctx-check" data-chk-state="sleepy"></span>
+    </button>
+    <button type="button" class="ctx-item" data-cmd-action="set-state" data-cmd-val="overdrive">
+      <span>🔥 狂暴连击</span><span class="ctx-check" data-chk-state="overdrive"></span>
+    </button>
+    <div class="ctx-sep"></div>
     <div class="ctx-group-title">趣味互动</div>
     <button type="button" class="ctx-item" data-cmd-action="feed" data-cmd-val="bone"><span>🦴 喂香脆肉骨头</span></button>
     <button type="button" class="ctx-item" data-cmd-action="feed" data-cmd-val="jerky"><span>🥩 喂炭烤小肉干</span></button>
     <button type="button" class="ctx-item" data-cmd-action="feed" data-cmd-val="cheese"><span>🧀 喂芝士奶球</span></button>
     <button type="button" class="ctx-item" data-cmd-action="pet-head" data-cmd-val=""><span>💕 摸摸头夸夸</span></button>
-    <button type="button" class="ctx-item" data-cmd-action="nap" data-cmd-val=""><span>💤 哄它犯困吹鼻涕泡</span></button>
     <div class="ctx-sep"></div>
     <div class="ctx-group-title">键鼠朝向</div>
     <button type="button" class="ctx-item" data-cmd-action="set-desk-dir" data-cmd-val="user">
