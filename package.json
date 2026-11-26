@@ -7,8 +7,9 @@
     "dev:web": "node scripts/dev-server.mjs",
     "build:web": "node scripts/build-web.mjs",
     "tauri": "tauri",
-    "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build"
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "build:win": "PATH=\"$HOME/.cargo/bin:/opt/homebrew/opt/llvm/bin:$PATH\" tauri build --runner cargo-xwin --target x86_64-pc-windows-msvc --bundles nsis"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.5.0"

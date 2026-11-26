@@ -5,6 +5,17 @@ import { fileURLToPath } from 'node:url';
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const port = Number(process.env.PORT || 1420);
+const reloadClients = new Set();
+let reloadTimer;
+
+// Watch the frontend files only; Rust changes are handled by Tauri itself.
+fs.watch(rootDir, (event, filename) => {
+  if (!filename || !/\.(html|js|css)$/i.test(filename.toString())) return;
+  clearTimeout(reloadTimer);
+  reloadTimer = setTimeout(() => {
+    for (const client of reloadClients) client.write('data: reload\n\n');
+  }, 100);
+});
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -18,6 +29,17 @@ const MIME = {
 
 const server = http.createServer((req, res) => {
   const reqUrl = new URL(req.url || '/', `http://localhost:${port}`);
+  if (reqUrl.pathname === '/__dev_reload') {
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+    });
+    res.write(': connected\n\n');
+    reloadClients.add(res);
+    req.on('close', () => reloadClients.delete(res));
+    return;
+  }
   let relPath = decodeURIComponent(reqUrl.pathname);
   if (relPath === '/') relPath = '/index.html';
 
@@ -39,7 +61,12 @@ const server = http.createServer((req, res) => {
       'Content-Type': MIME[ext] || 'application/octet-stream',
       'Cache-Control': 'no-cache',
     });
-    res.end(data);
+    if (ext === '.html') {
+      const reloadScript = '<script>new EventSource("/__dev_reload").onmessage = () => location.reload();</script>';
+      res.end(data.toString().replace(/<\/body>/i, `${reloadScript}</body>`));
+    } else {
+      res.end(data);
+    }
   });
 });
 
