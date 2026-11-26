@@ -6358,7 +6358,7 @@
     ctx.globalAlpha = inputState.comboBadgeAlpha;
 
     const w = isOverdrive ? 236 : isTurbo ? 214 : 184;
-    const h = 54;
+    const h = 38;
 
     // Outer glow
     ctx.save();
@@ -6399,30 +6399,11 @@
     ctx.stroke();
 
     const textColor = isWarm || isTurbo || isOverdrive ? '#FFFFFF' : isDarkTheme ? '#F8FAFC' : '#2C3545';
-    const subText = isOverdrive
-      ? '🌈 狂暴全开 · 怒目狂飙!!'
-      : isTurbo
-        ? '🔥💢 咬牙暴走 · 大汗淋漓!'
-        : isWarm
-          ? '⚡ 专注加速中!'
-          : '连续敲键连击';
-
     ctx.fillStyle = textColor;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.font = '900 18px -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif';
-    ctx.fillText(`${isOverdrive ? '🔥' : isTurbo ? '🔥' : '⚡'} ${cVal} COMBO`, 0, -7);
-
-    ctx.font = '700 11px -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif';
-    ctx.globalAlpha = inputState.comboBadgeAlpha * 0.94;
-    ctx.fillText(subText, 0, 12);
-
-    // Remaining combo window progress bar
-    const barW = w - 44;
-    const ratio = clamp(inputState.comboTimer / inputState.comboMaxWindow, 0, 1);
-    roundRectPath(ctx, -barW * 0.5, h * 0.5 - 6.5, barW * Math.max(0.05, ratio), 3.2, 1.6);
-    ctx.fillStyle = isWarm || isTurbo || isOverdrive ? 'rgba(255,255,255,0.88)' : '#F59E0B';
-    ctx.fill();
+    ctx.font = '900 23px -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif';
+    ctx.fillText(`⚡ ${cVal} 连击`, 0, 0);
 
     ctx.restore();
   }
