@@ -16,10 +16,14 @@
   const themeLabelEl = document.getElementById('themeLabel');
   const exportBtn = document.getElementById('exportBtn');
   const napBtn = document.getElementById('napBtn');
+  const deskDirBtn = document.getElementById('deskDirBtn');
+  const deskDirIconEl = document.getElementById('deskDirIcon');
+  const deskDirLabelEl = document.getElementById('deskDirLabel');
   const webContextMenuEl = document.getElementById('webContextMenu');
   const ctxChkSoundEl = document.getElementById('ctxChkSound');
   const ctxChkPopupsEl = document.getElementById('ctxChkPopups');
   const ctxViewChecks = Array.from(document.querySelectorAll('[data-chk-view]'));
+  const ctxDeskChecks = Array.from(document.querySelectorAll('[data-chk-desk]'));
   const viewTabs = Array.from(document.querySelectorAll('.char-tab'));
   const treatBtns = Array.from(document.querySelectorAll('.treat-btn'));
 
@@ -36,6 +40,11 @@
   let currentView = IS_DESKTOP_PET
     ? localStorage.getItem('peng_pet_view') || 'sunny'
     : 'all';
+  let deskDir = 'user';
+  try {
+    if (localStorage.getItem('peng_pet_desk_dir') === 'dog') deskDir = 'dog';
+  } catch (_) {}
+  const isMouseOnLeft = () => deskDir === 'dog';
   let isDarkTheme = false;
   let showKeyPopups = localStorage.getItem('peng_pet_popups') !== 'false';
 
@@ -462,7 +471,7 @@
   // =========================================================================
   // Shared Workstation & Squatting Rig Constants
   // =========================================================================
-  const DOG_X = -12;
+  let DOG_X = -12;
 
   const KB_LOCAL = {
     cx: -43,
@@ -490,14 +499,33 @@
   };
 
   const MOUSE_SIZE_LOCAL = { w: 46, h: 64 };
-  const INIT_MOUSE_LX = 126;
+  let INIT_MOUSE_LX = 126;
   const INIT_MOUSE_LY = 54;
+
+  function syncWorkstationGeometryConsts() {
+    if (deskDir === 'dog') {
+      DOG_X = 12;
+      KB_LOCAL.cx = 43;
+      KB_LOCAL.angle = 0.015;
+      MOUSE_PAD_LOCAL.cx = -126;
+      MOUSE_BOUNDS_LOCAL.minX = -138;
+      MOUSE_BOUNDS_LOCAL.maxX = -114;
+      INIT_MOUSE_LX = -126;
+    } else {
+      DOG_X = -12;
+      KB_LOCAL.cx = -43;
+      KB_LOCAL.angle = -0.015;
+      MOUSE_PAD_LOCAL.cx = 126;
+      MOUSE_BOUNDS_LOCAL.minX = 114;
+      MOUSE_BOUNDS_LOCAL.maxX = 138;
+      INIT_MOUSE_LX = 126;
+    }
+  }
+  syncWorkstationGeometryConsts();
 
   const SHOULDER_OFFSET_X = 37;
   const SHOULDER_Y = -94;
-  const LEFT_SQUAT_HOME_X = DOG_X - 35;
   const LEFT_SQUAT_HOME_Y = -8;
-  const RIGHT_SQUAT_HOME_X = DOG_X + 35;
   const RIGHT_SQUAT_HOME_Y = -8;
 
   const isMac = /Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent);
@@ -634,10 +662,18 @@
   }
 
   function buildKeyboardGeometry() {
+    const prevState = new Map();
+    for (const [code, k] of keyByCode.entries()) {
+      prevState.set(code, { isDown: k.isDown, press: k.press, glow: k.glow });
+    }
+    keysList.length = 0;
+    keyByCode.clear();
+
     const innerW = KB_LOCAL.w - KB_LOCAL.padX * 2;
     const innerH = KB_LOCAL.h - KB_LOCAL.padY * 2;
     const numRows = KEY_ROWS_SPEC.length;
     const rowH = (innerH - KB_LOCAL.gap * (numRows - 1)) / numRows;
+    const faceDog = deskDir === 'dog';
 
     let curY = -KB_LOCAL.h * 0.5 + KB_LOCAL.padY;
     for (const row of KEY_ROWS_SPEC) {
@@ -647,23 +683,30 @@
 
       for (const spec of row) {
         const kw = spec.w * unitW;
-        const lcx = curX + kw * 0.5;
-        const lcy = curY + rowH * 0.5;
+        const rawCx = curX + kw * 0.5;
+        const rawCy = curY + rowH * 0.5;
+        const lcx = faceDog ? -rawCx : rawCx;
+        const lcy = faceDog ? -rawCy : rawCy;
+        const lx = faceDog ? lcx - kw * 0.5 : curX;
+        const ly = faceDog ? lcy - rowH * 0.5 : curY;
+        const effectiveHand = faceDog ? (spec.hand === 'left' ? 'right' : 'left') : spec.hand;
         const { ux, uy } = kbToUnitLocal(lcx, lcy);
+        const old = prevState.get(spec.code);
 
         const keyObj = {
           ...spec,
-          lx: curX,
-          ly: curY,
+          effectiveHand,
+          lx,
+          ly,
           w: kw,
           h: rowH,
           lcx,
           lcy,
           ux,
           uy,
-          isDown: false,
-          press: 0,
-          glow: 0,
+          isDown: old ? old.isDown : false,
+          press: old ? old.press : 0,
+          glow: old ? old.glow : 0,
         };
         keysList.push(keyObj);
         keyByCode.set(keyObj.code, keyObj);
@@ -718,26 +761,28 @@
         // Turbo paw afterimage trails (30+ Combo)
         pawTrails: [],
         leftPaw: {
-          x: LEFT_SQUAT_HOME_X,
+          x: DOG_X - 35,
           y: LEFT_SQUAT_HOME_Y,
-          targetX: LEFT_SQUAT_HOME_X,
+          targetX: DOG_X - 35,
           targetY: LEFT_SQUAT_HOME_Y,
-          prevX: LEFT_SQUAT_HOME_X,
+          prevX: DOG_X - 35,
           prevY: LEFT_SQUAT_HOME_Y,
           ghostAlpha: 0,
           mode: 'squat',
           activeKeyCode: null,
           holdUntil: 0,
+          clickShiftX: 0,
+          clickShiftY: 0,
           lift: 0,
           press: 0,
           isExtended: false,
         },
         rightPaw: {
-          x: RIGHT_SQUAT_HOME_X,
+          x: DOG_X + 35,
           y: RIGHT_SQUAT_HOME_Y,
-          targetX: RIGHT_SQUAT_HOME_X,
+          targetX: DOG_X + 35,
           targetY: RIGHT_SQUAT_HOME_Y,
-          prevX: RIGHT_SQUAT_HOME_X,
+          prevX: DOG_X + 35,
           prevY: RIGHT_SQUAT_HOME_Y,
           ghostAlpha: 0,
           mode: 'squat',
@@ -1182,7 +1227,7 @@
     const popupScale = compactSingle ? 0.72 : 1.0;
     const boxH = Math.round(74 * popupScale);
     const boxW = Math.round(74 * displayInfo.widthFactor * popupScale);
-    const isLeftSide = keyObj ? keyObj.hand === 'left' : false;
+    const isLeftSide = keyObj ? (keyObj.effectiveHand || keyObj.hand) === 'left' : false;
 
     let targetX;
     let targetY;
@@ -1310,11 +1355,89 @@
       soundIconEl.textContent = soundEnabled ? '🔊' : '🔇';
       soundLabelEl.textContent = soundEnabled ? '音效开' : '音效关';
     }
+    if (deskDirBtn) {
+      const faceDog = deskDir === 'dog';
+      deskDirBtn.setAttribute('aria-pressed', String(faceDog));
+      if (deskDirIconEl) deskDirIconEl.textContent = faceDog ? '🐶' : '👀';
+      if (deskDirLabelEl) deskDirLabelEl.textContent = faceDog ? '面向狗狗' : '面向用户';
+    }
     if (ctxChkSoundEl) ctxChkSoundEl.textContent = soundEnabled ? '✓' : '';
     if (ctxChkPopupsEl) ctxChkPopupsEl.textContent = showKeyPopups ? '✓' : '';
     for (const el of ctxViewChecks) {
       el.textContent = el.dataset.chkView === currentView ? '✓' : '';
     }
+    for (const el of ctxDeskChecks) {
+      el.textContent = el.dataset.chkDesk === deskDir ? '✓' : '';
+    }
+  }
+
+  function applyDeskDirection(dir, animate = true) {
+    const nextDir = dir === 'dog' ? 'dog' : 'user';
+    deskDir = nextDir;
+    try {
+      localStorage.setItem('peng_pet_desk_dir', deskDir);
+    } catch (_) {}
+
+    syncWorkstationGeometryConsts();
+    buildKeyboardGeometry();
+
+    inputState.mouseTargetLX = lerp(
+      MOUSE_BOUNDS_LOCAL.minX,
+      MOUSE_BOUNDS_LOCAL.maxX,
+      inputState.mouseNormX
+    );
+    inputState.mouseLX = inputState.mouseTargetLX;
+
+    for (const dogObj of dogsList) {
+      const st = dogObj.state;
+      st.leanX = 0;
+      st.targetLeanX = 0;
+      for (const [paw, homeX] of [
+        [st.leftPaw, DOG_X - 35],
+        [st.rightPaw, DOG_X + 35],
+      ]) {
+        if (paw.mode === 'mouse') {
+          paw.mode = 'squat';
+          paw.isExtended = false;
+        }
+        if (paw.mode === 'keyboard' && paw.activeKeyCode && keyByCode.has(paw.activeKeyCode)) {
+          const k = keyByCode.get(paw.activeKeyCode);
+          paw.targetX = k.ux;
+          paw.targetY = k.uy - 3;
+        } else if (paw.mode === 'squat') {
+          paw.x = homeX;
+          paw.targetX = homeX;
+          paw.prevX = homeX;
+          paw.y = LEFT_SQUAT_HOME_Y;
+          paw.targetY = LEFT_SQUAT_HOME_Y;
+        }
+      }
+      if (animate) {
+        st.bounce = 0.85;
+        st.leftEarKick = 0.88;
+        st.rightEarKick = 0.88;
+        st.excitement = Math.max(st.excitement, 0.45);
+        if (dogObj.def.face.sunglasses) st.glintProgress = 0.01;
+      }
+    }
+
+    syncSoundAndMenuCheckmarks();
+    if (IS_TAURI) {
+      tauriInvoke('sync_pet_preferences', {
+        view: currentView,
+        deskDir,
+        soundEnabled,
+        showPopups: showKeyPopups,
+      });
+    }
+
+    if (animate && statusHintEl) {
+      statusHintEl.textContent =
+        deskDir === 'dog'
+          ? '已切换键鼠朝向：🐶 面向狗狗（键鼠旋转 180°，鼠标移至左侧由狗狗右爪操控）'
+          : '已切换键鼠朝向：👀 面向用户（键鼠正对屏幕，鼠标位于右侧）';
+    }
+    drawScene();
   }
 
   function closeWebContextMenu() {
@@ -1426,6 +1549,12 @@
       case 'nap':
         triggerNapCommand();
         break;
+      case 'set-desk-dir':
+        if (value === 'dog' || value === 'user') applyDeskDirection(value, true);
+        break;
+      case 'toggle-desk-dir':
+        applyDeskDirection(deskDir === 'dog' ? 'user' : 'dog', true);
+        break;
       case 'set-sound':
         soundEnabled = value === 'true';
         try {
@@ -1514,6 +1643,15 @@
     });
   }
 
+  if (deskDirBtn) {
+    deskDirBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      closeWebContextMenu();
+      executeMenuCommand('toggle-desk-dir', '');
+      deskDirBtn.blur();
+    });
+  }
+
   for (const btn of treatBtns) {
     btn.addEventListener('mousedown', (e) => {
       if (e.button !== 0) return;
@@ -1561,8 +1699,11 @@
       inputState.middleDown ||
       inputState.time < inputState.mouseActiveUntil;
 
-    let useRight = keyObj.hand === 'right';
-    if (useRight && mouseBusy) useRight = false;
+    const prefHand = keyObj.effectiveHand || keyObj.hand;
+    let useRight = prefHand === 'right';
+    if (mouseBusy) {
+      useRight = isMouseOnLeft() ? true : false;
+    }
 
     if (!useRight) {
       const lp = st.leftPaw;
@@ -1576,7 +1717,7 @@
       lp.mode = 'keyboard';
       lp.isExtended = true;
       lp.activeKeyCode = keyObj.code;
-      lp.targetX = keyObj.ux;
+      lp.targetX = keyObj.code === 'Space' ? keyObj.ux - 14 : keyObj.ux;
       lp.targetY = keyObj.uy - 3;
       lp.holdUntil = inputState.time + 0.36;
       st.leftEarKick = 1;
@@ -1761,10 +1902,19 @@
 
     for (const dogObj of dogsList) {
       const st = dogObj.state;
-      st.rightPaw.mode = 'mouse';
-      st.rightPaw.isExtended = true;
-      st.rightPaw.activeKeyCode = null;
-      st.targetLeanX = 14 + (cnx - 0.5) * 8;
+      if (isMouseOnLeft()) {
+        st.leftPaw.mode = 'mouse';
+        st.leftPaw.isExtended = true;
+        st.leftPaw.activeKeyCode = null;
+        if (st.rightPaw.mode === 'mouse') st.rightPaw.mode = 'squat';
+        st.targetLeanX = -14 + (cnx - 0.5) * 8;
+      } else {
+        st.rightPaw.mode = 'mouse';
+        st.rightPaw.isExtended = true;
+        st.rightPaw.activeKeyCode = null;
+        if (st.leftPaw.mode === 'mouse') st.leftPaw.mode = 'squat';
+        st.targetLeanX = 14 + (cnx - 0.5) * 8;
+      }
     }
   }
 
@@ -1778,9 +1928,13 @@
 
   function triggerDeskMouseClickVisual(button) {
     const placements = getActivePlacements();
+    const mouseLeft = isMouseOnLeft();
+    const mSign = mouseLeft ? -1 : 1;
+
     for (const p of placements) {
       const st = p.dog.state;
-      st.rightEarKick = 0.95;
+      if (mouseLeft) st.leftEarKick = 0.95;
+      else st.rightEarKick = 0.95;
       st.bounce = 0.72;
       st.excitement = Math.min(1, st.excitement + 0.24);
     }
@@ -1789,10 +1943,10 @@
       inputState.leftDown = true;
       inputState.leftGlow = 1;
       for (const p of placements) {
-        const mPos = unitToStage(p, inputState.mouseLX - 11, inputState.mouseLY - 14);
+        const mPos = unitToStage(p, inputState.mouseLX - 11 * mSign, inputState.mouseLY - 14 * mSign);
         spawnRipple(mPos.sx, mPos.sy, '#FF7849', 34 * p.scale);
         spawnSparkles(mPos.sx, mPos.sy, '#FF7849', placements.length > 1 ? 3 : 5);
-        spawnMouseBadge(mPos.sx - 8, mPos.sy + 58 * p.scale, '左键', '#FF6B42');
+        spawnMouseBadge(mPos.sx - 8 * mSign, mPos.sy + 58 * p.scale, '左键', '#FF6B42');
       }
       playMouseClickSound(false);
       incrementAction('点击鼠标左键');
@@ -1800,10 +1954,10 @@
       inputState.rightDown = true;
       inputState.rightGlow = 1;
       for (const p of placements) {
-        const mPos = unitToStage(p, inputState.mouseLX + 11, inputState.mouseLY - 14);
+        const mPos = unitToStage(p, inputState.mouseLX + 11 * mSign, inputState.mouseLY - 14 * mSign);
         spawnRipple(mPos.sx, mPos.sy, '#38BDF8', 34 * p.scale);
         spawnSparkles(mPos.sx, mPos.sy, '#38BDF8', placements.length > 1 ? 3 : 5);
-        spawnMouseBadge(mPos.sx + 8, mPos.sy + 58 * p.scale, '右键', '#0EA5E9');
+        spawnMouseBadge(mPos.sx + 8 * mSign, mPos.sy + 58 * p.scale, '右键', '#0EA5E9');
       }
       playMouseClickSound(true);
       incrementAction('点击鼠标右键');
@@ -1811,7 +1965,7 @@
       inputState.middleDown = true;
       inputState.middleGlow = 1;
       for (const p of placements) {
-        const mPos = unitToStage(p, inputState.mouseLX, inputState.mouseLY - 14);
+        const mPos = unitToStage(p, inputState.mouseLX, inputState.mouseLY - 14 * mSign);
         spawnRipple(mPos.sx, mPos.sy, '#A78BFA', 30 * p.scale);
         spawnMouseBadge(mPos.sx, mPos.sy + 58 * p.scale, '中键', '#8B5CF6');
       }
@@ -2029,8 +2183,9 @@
       inputState.mouseActiveUntil = Math.max(inputState.mouseActiveUntil, inputState.time + 0.65);
       for (const dogObj of dogsList) {
         const st = dogObj.state;
-        st.rightPaw.mode = 'mouse';
-        st.rightPaw.isExtended = true;
+        const mPaw = isMouseOnLeft() ? st.leftPaw : st.rightPaw;
+        mPaw.mode = 'mouse';
+        mPaw.isExtended = true;
         st.excitement = Math.min(1, st.excitement + 0.08);
       }
     },
@@ -2280,13 +2435,32 @@
       const leftHomeY = LEFT_SQUAT_HOME_Y;
       const rightHomeX = bodyX + 35;
       const rightHomeY = RIGHT_SQUAT_HOME_Y;
+      const mouseLeft = isMouseOnLeft();
 
-      // Left Paw ('squat' <-> 'keyboard')
+      // Left Paw ('squat' <-> 'mouse' [when mouse on left] / 'keyboard')
       const lp = st.leftPaw;
-      const leftKeyWanted = lp.activeKeyCode !== null || inputState.time < lp.holdUntil;
+      const leftKeyWanted =
+        lp.mode === 'keyboard' && (lp.activeKeyCode !== null || inputState.time < lp.holdUntil);
       if (leftKeyWanted) {
-        lp.mode = 'keyboard';
         lp.isExtended = true;
+      } else if (mouseLeft && mouseWanted && !hoveredHead) {
+        lp.mode = 'mouse';
+        lp.isExtended = true;
+        let cShiftX = 0;
+        let cShiftY = 0;
+        if (inputState.leftDown || inputState.leftGlow > 0.3) {
+          const s = Math.max(inputState.leftDown ? 1 : 0, inputState.leftGlow);
+          cShiftX = 10.5 * s;
+          cShiftY = 5.5 * s;
+        } else if (inputState.rightDown || inputState.rightGlow > 0.3) {
+          const s = Math.max(inputState.rightDown ? 1 : 0, inputState.rightGlow);
+          cShiftX = -10.5 * s;
+          cShiftY = 5.5 * s;
+        }
+        lp.clickShiftX = lerp(lp.clickShiftX, cShiftX, 1 - Math.exp(-dt * 26));
+        lp.clickShiftY = lerp(lp.clickShiftY, cShiftY, 1 - Math.exp(-dt * 26));
+        lp.targetX = inputState.mouseLX + lp.clickShiftX;
+        lp.targetY = inputState.mouseLY - 4 + lp.clickShiftY;
       } else {
         lp.mode = 'squat';
         lp.targetX = leftHomeX;
@@ -2306,17 +2480,21 @@
         lp.isExtended = true;
       }
 
+      const lpClicking =
+        lp.mode === 'mouse'
+          ? anyMouseHeld
+          : lp.mode === 'keyboard' && lp.activeKeyCode !== null && lpDist < 16;
       lp.lift = lerp(lp.lift, clamp(lpDist / 55, 0, 0.85), 1 - Math.exp(-dt * 24));
-      lp.press = lerp(lp.press, leftKeyWanted && lpDist < 16 ? 1 : 0, 1 - Math.exp(-dt * 30));
+      lp.press = lerp(lp.press, lpClicking ? 1 : 0, 1 - Math.exp(-dt * 28));
 
-      // Right Paw ('squat' <-> 'mouse' / 'keyboard')
+      // Right Paw ('squat' <-> 'mouse' [when mouse on right] / 'keyboard')
       const rp = st.rightPaw;
       const rightKeyWanted =
         rp.mode === 'keyboard' && (rp.activeKeyCode !== null || inputState.time < rp.holdUntil);
 
       if (rightKeyWanted) {
         rp.isExtended = true;
-      } else if (mouseWanted && !hoveredHead) {
+      } else if (!mouseLeft && mouseWanted && !hoveredHead) {
         rp.mode = 'mouse';
         rp.isExtended = true;
         let cShiftX = 0;
@@ -4267,7 +4445,15 @@
       c.textAlign = 'center';
       c.textBaseline = 'middle';
       c.fillStyle = glow > 0.25 ? '#3F1D04' : k.accent && od < 0.1 ? '#FFFFFF' : dt.capText;
-      c.fillText(k.label, k.lcx, k.ly + pressOffset + capH * 0.54);
+      if (deskDir === 'dog') {
+        c.save();
+        c.translate(k.lcx, k.ly + pressOffset + capH * 0.5);
+        c.rotate(Math.PI);
+        c.fillText(k.label, 0, 0);
+        c.restore();
+      } else {
+        c.fillText(k.label, k.lcx, k.ly + pressOffset + capH * 0.54);
+      }
     }
     c.restore();
   }
@@ -4356,6 +4542,7 @@
     const hw = MOUSE_SIZE_LOCAL.w * 0.5;
     const hh = MOUSE_SIZE_LOCAL.h * 0.5;
     const splitY = 2;
+    const faceDog = deskDir === 'dog';
 
     c.save();
     c.translate(inputState.mouseLX, inputState.mouseLY);
@@ -4365,6 +4552,10 @@
     c.beginPath();
     c.ellipse(1.5, 5, hw * 1.04, hh * 0.98, 0, 0, Math.PI * 2);
     c.fill();
+
+    if (faceDog) {
+      c.rotate(Math.PI);
+    }
 
     if (inputState.leftGlow > 0.04) {
       const lAura = c.createRadialGradient(-hw * 0.45, -hh * 0.45, 2, -hw * 0.45, -hh * 0.45, 42);
@@ -4390,7 +4581,9 @@
     defineMouseShellPath(c, hw, hh);
     c.clip();
 
-    const bodyGrad = c.createLinearGradient(-hw, -hh, hw, hh);
+    const bodyGrad = faceDog
+      ? c.createLinearGradient(hw, hh, -hw, -hh)
+      : c.createLinearGradient(-hw, -hh, hw, hh);
     bodyGrad.addColorStop(0, '#FFFFFF');
     bodyGrad.addColorStop(0.6, '#F8FAFC');
     bodyGrad.addColorStop(1, '#E2E7F0');
@@ -4445,7 +4638,7 @@
 
     c.fillStyle = 'rgba(255, 255, 255, 0.52)';
     c.beginPath();
-    c.ellipse(-4, hh * 0.48, 8, 4.2, -0.2, 0, Math.PI * 2);
+    c.ellipse(faceDog ? 4 : -4, hh * 0.48, 8, 4.2, -0.2, 0, Math.PI * 2);
     c.fill();
     c.restore();
 
@@ -4499,7 +4692,8 @@
     c.strokeStyle = 'rgba(255, 255, 255, 0.58)';
     c.lineWidth = 1.2;
     const step = 4;
-    const shift = ((inputState.wheelOffset % step) + step) % step;
+    const wheelDir = faceDog ? -1 : 1;
+    const shift = (((inputState.wheelOffset * wheelDir) % step) + step) % step;
     for (let y = wheelY - step + shift; y < wheelY + wheelH + step; y += step) {
       c.beginPath();
       c.moveTo(wheelX + 1.5, y);
@@ -5192,6 +5386,7 @@
 
     tauriInvoke('sync_pet_preferences', {
       view: currentView,
+      deskDir,
       soundEnabled,
       showPopups: showKeyPopups,
     });
@@ -5271,8 +5466,9 @@
           inputState.middleGlow = Math.max(inputState.middleGlow, 0.85);
           inputState.mouseActiveUntil = Math.max(inputState.mouseActiveUntil, inputState.time + 0.65);
           for (const dogObj of dogsList) {
-            dogObj.state.rightPaw.mode = 'mouse';
-            dogObj.state.rightPaw.isExtended = true;
+            const mPaw = isMouseOnLeft() ? dogObj.state.leftPaw : dogObj.state.rightPaw;
+            mPaw.mode = 'mouse';
+            mPaw.isExtended = true;
           }
           break;
         default:

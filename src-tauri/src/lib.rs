@@ -13,6 +13,7 @@ use tauri::{
 
 pub struct PetRuntimeState {
     pub current_view: String,
+    pub desk_dir: String,
     pub scale_pct: u32,
     pub always_on_top: bool,
     pub passthrough_locked: bool,
@@ -25,6 +26,7 @@ impl Default for PetRuntimeState {
     fn default() -> Self {
         Self {
             current_view: "sunny".to_string(),
+            desk_dir: "user".to_string(),
             scale_pct: 100,
             always_on_top: true,
             passthrough_locked: false,
@@ -42,6 +44,8 @@ struct ManagedApp {
     view_daisy: CheckMenuItem<Wry>,
     view_kuro: CheckMenuItem<Wry>,
     view_all: CheckMenuItem<Wry>,
+    desk_user: CheckMenuItem<Wry>,
+    desk_dog: CheckMenuItem<Wry>,
     scale_75: CheckMenuItem<Wry>,
     scale_100: CheckMenuItem<Wry>,
     scale_130: CheckMenuItem<Wry>,
@@ -57,6 +61,9 @@ impl ManagedApp {
         let _ = self.view_daisy.set_checked(st.current_view == "daisy");
         let _ = self.view_kuro.set_checked(st.current_view == "kuro");
         let _ = self.view_all.set_checked(st.current_view == "all");
+
+        let _ = self.desk_user.set_checked(st.desk_dir != "dog");
+        let _ = self.desk_dog.set_checked(st.desk_dir == "dog");
 
         let _ = self.scale_75.set_checked(st.scale_pct == 75);
         let _ = self.scale_100.set_checked(st.scale_pct == 100);
@@ -160,6 +167,7 @@ fn sync_pet_preferences(
     app: AppHandle,
     managed: State<'_, ManagedApp>,
     view: String,
+    desk_dir: Option<String>,
     sound_enabled: bool,
     show_popups: bool,
 ) {
@@ -168,6 +176,11 @@ fn sync_pet_preferences(
             st.current_view = view.clone();
             if let Some(win) = app.get_webview_window("main") {
                 resize_anchoring_bottom_right(&win, &st.current_view, st.scale_pct);
+            }
+        }
+        if let Some(dir) = desk_dir {
+            if matches!(dir.as_str(), "user" | "dog") {
+                st.desk_dir = dir;
             }
         }
         st.sound_enabled = sound_enabled;
@@ -238,6 +251,20 @@ fn handle_menu_command(app: &AppHandle, id: &str) {
                 FrontendMenuPayload {
                     action: "export-png",
                     value: "",
+                },
+            );
+        }
+        "desk:user" | "desk:dog" => {
+            let dir = &id[5..];
+            if let Ok(mut st) = managed.runtime.lock() {
+                st.desk_dir = dir.to_string();
+                managed.sync_checkmarks(&st);
+            }
+            let _ = app.emit(
+                "pet-menu-command",
+                FrontendMenuPayload {
+                    action: "set-desk-dir",
+                    value: dir,
                 },
             );
         }
@@ -340,6 +367,29 @@ fn build_shared_menu(app: &AppHandle) -> tauri::Result<ManagedApp> {
     let act_pet = MenuItem::with_id(app, "action:pet", "💕 摸摸头夸夸", true, None::<&str>)?;
     let act_nap = MenuItem::with_id(app, "action:nap", "💤 哄它犯困吹鼻涕泡", true, None::<&str>)?;
 
+    let desk_user = CheckMenuItem::with_id(
+        app,
+        "desk:user",
+        "👀 面向用户（鼠标在右）",
+        true,
+        true,
+        None::<&str>,
+    )?;
+    let desk_dog = CheckMenuItem::with_id(
+        app,
+        "desk:dog",
+        "🐶 面向狗狗（鼠标在左）",
+        true,
+        false,
+        None::<&str>,
+    )?;
+    let desk_submenu = Submenu::with_items(
+        app,
+        "⌨️ 键鼠朝向",
+        true,
+        &[&desk_user, &desk_dog],
+    )?;
+
     let scale_75 = CheckMenuItem::with_id(app, "scale:75", "小巧 (75%)", true, false, None::<&str>)?;
     let scale_100 = CheckMenuItem::with_id(app, "scale:100", "标准 (100%)", true, true, None::<&str>)?;
     let scale_130 = CheckMenuItem::with_id(app, "scale:130", "放大 (130%)", true, false, None::<&str>)?;
@@ -398,6 +448,7 @@ fn build_shared_menu(app: &AppHandle) -> tauri::Result<ManagedApp> {
             &act_pet,
             &act_nap,
             &sep2,
+            &desk_submenu,
             &scale_submenu,
             &chk_top,
             &chk_pass,
@@ -425,6 +476,7 @@ fn build_shared_menu(app: &AppHandle) -> tauri::Result<ManagedApp> {
             &act_pet,
             &act_nap,
             &sep2,
+            &desk_submenu,
             &scale_submenu,
             &chk_top,
             &chk_pass,
@@ -447,6 +499,8 @@ fn build_shared_menu(app: &AppHandle) -> tauri::Result<ManagedApp> {
         view_daisy,
         view_kuro,
         view_all,
+        desk_user,
+        desk_dog,
         scale_75,
         scale_100,
         scale_130,

@@ -302,6 +302,9 @@
     </div>
 
     <div class="hud-actions">
+      <button type="button" class="hud-btn" id="deskDirBtn" title="切换键鼠朝向：面向用户（鼠标在右）/ 面向狗狗（鼠标在左）">
+        <span id="deskDirIcon">👀</span><span id="deskDirLabel">面向用户</span>
+      </button>
       <button type="button" class="hud-btn" id="napBtn" title="让小狗打哈欠犯困吹鼻涕泡（静置15秒也会自动打瞌睡，敲键/点击即可戳醒！）">
         <span>💤</span><span>犯困</span>
       </button>
@@ -341,6 +344,14 @@
     <button type="button" class="ctx-item" data-cmd-action="feed" data-cmd-val="cheese"><span>🧀 喂芝士奶球</span></button>
     <button type="button" class="ctx-item" data-cmd-action="pet-head" data-cmd-val=""><span>💕 摸摸头夸夸</span></button>
     <button type="button" class="ctx-item" data-cmd-action="nap" data-cmd-val=""><span>💤 哄它犯困吹鼻涕泡</span></button>
+    <div class="ctx-sep"></div>
+    <div class="ctx-group-title">键鼠朝向</div>
+    <button type="button" class="ctx-item" data-cmd-action="set-desk-dir" data-cmd-val="user">
+      <span>👀 面向用户（鼠标在右）</span><span class="ctx-check" data-chk-desk="user">✓</span>
+    </button>
+    <button type="button" class="ctx-item" data-cmd-action="set-desk-dir" data-cmd-val="dog">
+      <span>🐶 面向狗狗（鼠标在左）</span><span class="ctx-check" data-chk-desk="dog"></span>
+    </button>
     <div class="ctx-sep"></div>
     <button type="button" class="ctx-item" data-cmd-action="toggle-sound" data-cmd-val="">
       <span>🔊 互动音效</span><span class="ctx-check" id="ctxChkSound"></span>
