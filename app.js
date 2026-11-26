@@ -97,6 +97,7 @@
       groundShadow: { light: 'rgba(92, 74, 56, 0.14)', sketchLines: false },
       tail: {
         type: 'feathered',
+        tip: { x: -56, y: -35 },
         colors: ['#ECC564', '#F9DF86', '#FCEAA4'],
         wagLines: true,
       },
@@ -171,6 +172,7 @@
       groundShadow: { light: 'rgba(116, 168, 234, 0.32)', sketchLines: false },
       tail: {
         type: 'curled-shiba',
+        tip: { x: -20, y: -58 },
         colors: ['#F7BD6B', '#EC9846', '#DC8232'],
       },
       torso: {
@@ -247,6 +249,7 @@
       groundShadow: { light: 'rgba(92, 74, 56, 0.14)', sketchLines: true },
       tail: {
         type: 'spiky-shiba',
+        tip: { x: -22, y: -66 },
         colors: ['#2B2E36', '#191B20', '#101215'],
       },
       torso: {
@@ -732,6 +735,8 @@
       state: {
         breathPhase: def.phaseOffset,
         tailPhase: def.phaseOffset * 1.6,
+        tailReach: 0,
+        tailTapUntil: 0,
         bounce: 0,
         leftEarKick: 0,
         rightEarKick: 0,
@@ -1965,6 +1970,15 @@
       rp.holdUntil = inputState.time + 0.36;
       st.rightEarKick = 1;
     }
+  }
+
+  function animateDogKeyPress(dogObj, keyObj, code) {
+    const st = dogObj.state;
+    if (code === 'Space') {
+      st.tailTapUntil = inputState.time + 0.12;
+    } else {
+      assignPawForDogKey(dogObj, keyObj);
+    }
 
     st.targetLeanX = clamp((keyObj.ux - DOG_X) * 0.14, -18, 18);
     st.targetLookX = clamp((keyObj.ux - DOG_X) / 150, -0.85, 0.9);
@@ -2023,7 +2037,7 @@
         ? `hsl(${(inputState.time * 320) % 360}, 95%, 62%)`
         : '#FFB84D';
       for (const p of placements) {
-        assignPawForDogKey(p.dog, keyObj);
+        animateDogKeyPress(p.dog, keyObj, code);
         const pos = unitToStage(p, keyObj.ux, keyObj.uy);
         spawnRipple(
           pos.sx,
@@ -2699,6 +2713,8 @@
       st.excitement = Math.max(0, st.excitement - dt * 0.45);
       const tailSpeed = st.sleepBlend > 0.4 ? 1.4 : 4.5 + st.excitement * 12.5 + inputState.overdriveBlend * 5.0;
       st.tailPhase += dt * tailSpeed;
+      const tailDown = inputState.activeCodes.has('Space') || inputState.time < st.tailTapUntil;
+      st.tailReach = clamp(st.tailReach + dt * (tailDown ? 12 : -6), 0, 1);
 
       st.leanX = lerp(st.leanX, st.targetLeanX, 1 - Math.exp(-dt * 9));
       st.targetLeanX *= Math.exp(-dt * 2.0);
@@ -3119,12 +3135,30 @@
   // =========================================================================
   // SHARED COMPONENT 1: Tail, Squatting Hind Legs & Torso
   // =========================================================================
-  function drawSharedTail(c, def, bodyX, wagAngle, breath) {
+  function drawSharedTail(c, def, st, bodyX, breath) {
     const tSpec = def.tail;
     const outline = def.outline;
     c.save();
-    c.translate(bodyX - 66, -54 + breath * 0.3);
-    c.rotate(-0.12 + wagAngle);
+    const reach = st.tailReach ** 2 * (3 - 2 * st.tailReach);
+    // As the tail uncurls, the visible section emerges around the outside of the thigh.
+    const rootX = bodyX - 66 - 8 * reach;
+    const rootY = -54 + breath * 0.3 + 21 * reach;
+    const wag = Math.sin(st.tailPhase) * (0.14 + st.excitement * 0.25);
+    const restAngle = -0.12 + wag;
+    c.translate(rootX, rootY);
+    if (st.tailReach > 0) {
+      const space = keyByCode.get('Space');
+      const dx = space.ux - space.w * 0.35 - rootX;
+      const dy = space.uy + space.press * 2 - rootY;
+      const tipAngle = Math.atan2(tSpec.tip.y, tSpec.tip.x);
+      // Sweep around the outside of the left haunch, then land on the near end of Space.
+      const pressAngle = Math.atan2(dy, dx) - Math.PI * 2 - tipAngle;
+      c.rotate(lerp(restAngle, pressAngle, reach) + tipAngle);
+      c.scale(lerp(1, Math.hypot(dx, dy) / Math.hypot(tSpec.tip.x, tSpec.tip.y), reach), 1);
+      c.rotate(-tipAngle);
+    } else {
+      c.rotate(restAngle);
+    }
 
     if (tSpec.type === 'feathered') {
       c.beginPath();
@@ -3146,7 +3180,7 @@
       c.lineJoin = 'round';
       c.stroke();
 
-      if (tSpec.wagLines) {
+      if (tSpec.wagLines && st.tailReach < 0.3) {
         c.lineWidth = 2.4;
         c.lineCap = 'round';
         c.beginPath();
@@ -3249,9 +3283,6 @@
     const outline = def.outline;
     const lineW = def.outlineW;
     const tSpec = def.torso;
-    const wag = Math.sin(st.tailPhase) * (0.14 + st.excitement * 0.25);
-
-    drawSharedTail(c, def, bodyX, wag, breath);
 
     // Squatting hind thighs & tucked hind paws
     for (const side of [-1, 1]) {
@@ -5761,11 +5792,10 @@
       }
     }
 
-    // 2. Squatting Torso, Hind Legs & Tail
-    drawSharedTorsoAndHindLegs(c, def, st, bodyX, breath);
-
-    // 3. Unobstructed Front Keyboard & Right-Side Mouse
+    // The tail passes over the keycaps while its root stays tucked behind the haunch.
     drawWorkstationDesk(c, def);
+    drawSharedTail(c, def, st, bodyX, breath);
+    drawSharedTorsoAndHindLegs(c, def, st, bodyX, breath);
 
     // 4. Unified Fixed-Shoulder Front Limbs (+ Turbo Multi-Paw Afterimages!)
     if (!isExport && st.pawTrails.length > 0) {
