@@ -22,11 +22,13 @@
   const webContextMenuEl = document.getElementById('webContextMenu');
   const ctxChkSoundEl = document.getElementById('ctxChkSound');
   const ctxChkPopupsEl = document.getElementById('ctxChkPopups');
+  const ctxChkRoamBarkEl = document.getElementById('ctxChkRoamBark');
+  const roamBarkBtn = document.getElementById('roamBarkBtn');
   const ctxViewChecks = Array.from(document.querySelectorAll('[data-chk-view]'));
   const ctxDeskChecks = Array.from(document.querySelectorAll('[data-chk-desk]'));
   const ctxStateChecks = Array.from(document.querySelectorAll('[data-chk-state]'));
   const viewTabs = Array.from(document.querySelectorAll('.char-tab'));
-  const stateBtns = Array.from(document.querySelectorAll('.state-btn'));
+  const stateBtns = Array.from(document.querySelectorAll('.state-btn[data-state]'));
   const treatBtns = Array.from(document.querySelectorAll('.treat-btn'));
 
   // Detect Tauri Desktop Pet runtime (or ?desktop=1 preview mode)
@@ -478,6 +480,146 @@
     osc.stop(now + 0.06);
   }
 
+  let barkNoiseBuffer = null;
+
+  function getBarkNoiseBuffer() {
+    if (!audioCtx) return null;
+    if (barkNoiseBuffer && barkNoiseBuffer.sampleRate === audioCtx.sampleRate) {
+      return barkNoiseBuffer;
+    }
+    const len = Math.floor(audioCtx.sampleRate * 0.06);
+    const buf = audioCtx.createBuffer(1, len, audioCtx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) {
+      data[i] = (Math.random() * 2 - 1) * (1 - i / len);
+    }
+    barkNoiseBuffer = buf;
+    return buf;
+  }
+
+  function playBarkSound(dogId = 'daisy', pattern = 'single') {
+    if (!soundEnabled) return;
+    ensureAudio();
+    if (!audioCtx) return;
+
+    const now = audioCtx.currentTime;
+    const baseByDog = {
+      daisy: 385,
+      kuro: 335,
+      sunny: 265,
+    };
+    const baseFreq = (baseByDog[dogId] || 355) * (0.94 + Math.random() * 0.14);
+
+    if (pattern === 'howl') {
+      const osc = audioCtx.createOscillator();
+      const osc2 = audioCtx.createOscillator();
+      const filter = audioCtx.createBiquadFilter();
+      const gain = audioCtx.createGain();
+
+      osc.type = 'triangle';
+      osc2.type = 'sine';
+      osc.frequency.setValueAtTime(baseFreq * 0.9, now);
+      osc.frequency.exponentialRampToValueAtTime(baseFreq * 1.62, now + 0.14);
+      osc.frequency.exponentialRampToValueAtTime(baseFreq * 1.18, now + 0.34);
+
+      osc2.frequency.setValueAtTime(baseFreq * 1.8, now);
+      osc2.frequency.exponentialRampToValueAtTime(baseFreq * 3.1, now + 0.14);
+      osc2.frequency.exponentialRampToValueAtTime(baseFreq * 2.2, now + 0.34);
+
+      filter.type = 'bandpass';
+      filter.frequency.setValueAtTime(baseFreq * 2.4, now);
+      filter.Q.setValueAtTime(2.0, now);
+
+      gain.gain.setValueAtTime(0.0001, now);
+      gain.gain.linearRampToValueAtTime(0.15, now + 0.04);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.36);
+
+      osc.connect(filter);
+      osc2.connect(filter);
+      filter.connect(gain);
+      gain.connect(audioCtx.destination);
+
+      osc.start(now);
+      osc2.start(now);
+      osc.stop(now + 0.38);
+      osc2.stop(now + 0.38);
+      return;
+    }
+
+    const schedule =
+      pattern === 'triple'
+        ? [
+            [0, 1.0],
+            [0.135, 1.12],
+            [0.27, 1.05],
+          ]
+        : pattern === 'double'
+          ? [
+              [0, 0.98],
+              [0.155, 1.12],
+            ]
+          : [[0, 1.0]];
+
+    const noiseBuf = getBarkNoiseBuffer();
+
+    for (const [offset, mult] of schedule) {
+      const t0 = now + offset;
+      const f = baseFreq * mult;
+
+      const osc = audioCtx.createOscillator();
+      const oscSub = audioCtx.createOscillator();
+      const formant = audioCtx.createBiquadFilter();
+      const gain = audioCtx.createGain();
+
+      osc.type = 'sawtooth';
+      oscSub.type = 'triangle';
+
+      osc.frequency.setValueAtTime(f * 0.88, t0);
+      osc.frequency.exponentialRampToValueAtTime(f * 1.48, t0 + 0.026);
+      osc.frequency.exponentialRampToValueAtTime(f * 0.62, t0 + 0.125);
+
+      oscSub.frequency.setValueAtTime(f * 0.44, t0);
+      oscSub.frequency.exponentialRampToValueAtTime(f * 0.74, t0 + 0.026);
+      oscSub.frequency.exponentialRampToValueAtTime(f * 0.34, t0 + 0.125);
+
+      formant.type = 'bandpass';
+      formant.frequency.setValueAtTime(f * 2.5, t0);
+      formant.frequency.exponentialRampToValueAtTime(f * 1.5, t0 + 0.12);
+      formant.Q.setValueAtTime(2.4, t0);
+
+      gain.gain.setValueAtTime(0.0001, t0);
+      gain.gain.linearRampToValueAtTime(0.18, t0 + 0.012);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.135);
+
+      osc.connect(formant);
+      oscSub.connect(formant);
+      formant.connect(gain);
+      gain.connect(audioCtx.destination);
+
+      osc.start(t0);
+      oscSub.start(t0);
+      osc.stop(t0 + 0.145);
+      oscSub.stop(t0 + 0.145);
+
+      if (noiseBuf) {
+        const noise = audioCtx.createBufferSource();
+        const nf = audioCtx.createBiquadFilter();
+        const ng = audioCtx.createGain();
+        noise.buffer = noiseBuf;
+        nf.type = 'bandpass';
+        nf.frequency.setValueAtTime(f * 3.1, t0);
+        nf.Q.setValueAtTime(1.5, t0);
+        ng.gain.setValueAtTime(0.08, t0);
+        ng.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.045);
+        noise.connect(nf);
+        nf.connect(ng);
+        ng.connect(audioCtx.destination);
+        noise.start(t0);
+        noise.stop(t0 + 0.05);
+      }
+    }
+  }
+
   // =========================================================================
   // Shared Workstation & Squatting Rig Constants
   // =========================================================================
@@ -791,6 +933,11 @@
         berserkBlend: 0,
         berserkChomp: 0,
         lastSweatAt: 0,
+        // Roam & Bark expressive vocal state
+        barkTimer: 0,
+        barkDuration: 0.34,
+        barkBlend: 0,
+        barkQueue: [],
         // Turbo paw afterimage trails (60+ Combo)
         pawTrails: [],
         leftPaw: {
@@ -908,6 +1055,31 @@
     sleepGraceUntil: -1,
     zzzParticles: [],
     shockMarks: [],
+
+    // 4. Roam & Bark Patrol Mode ("逛吠模式")
+    roamBarkEnabled: false,
+    roamBlend: 0,
+    roamMoving: false,
+    roamWalkBlend: 0,
+    roamWalkPhase: 0,
+    roamFacing: 1,
+    roamFacingScale: 1,
+    roamSpeed: 0,
+    roamDustTimer: 0,
+    roamEnabledAt: 0,
+    roamWeb: {
+      phase: 'pause',
+      timer: 0,
+      targetX: 660,
+      targetY: 446,
+      cruiseSpeed: 175,
+      curSpeed: 0,
+      midBarkTimer: 0,
+      extraBarkTimer: 0,
+    },
+    barkBubbles: [],
+    barkWaves: [],
+    dustPuffs: [],
   };
 
   const TREAT_META = {
@@ -962,9 +1134,10 @@
 
   // Hit-test if stage coordinates (sx, sy) are over any puppy's head or body
   function findHoveredPuppyPlacement(sx, sy) {
+    const faceSign = inputState.roamFacingScale < 0 ? -1 : 1;
     for (const p of activePlacements) {
       const st = p.dog.state;
-      const cx = p.cx + (DOG_X + st.leanX) * p.scale;
+      const cx = p.cx + (DOG_X + st.leanX) * faceSign * p.scale;
       const cy = p.baseY + PUPPY_BODY_BOUNDS.centerY * p.scale;
       const rx = PUPPY_BODY_BOUNDS.halfWidth * p.scale;
       const ry = PUPPY_BODY_BOUNDS.halfHeight * p.scale;
@@ -984,9 +1157,10 @@
 
   // Hit-test if stage coordinates (sx, sy) are over a puppy's head (for 摸摸头!)
   function findHoveredHeadPlacement(sx, sy) {
+    const faceSign = inputState.roamFacingScale < 0 ? -1 : 1;
     for (const p of activePlacements) {
       const st = p.dog.state;
-      const hx = p.cx + (DOG_X + st.leanX + st.lookX * 11) * p.scale;
+      const hx = p.cx + (DOG_X + st.leanX + st.lookX * 11) * faceSign * p.scale;
       const hy = p.baseY + (-204 + st.lookY * 6.5) * p.scale;
       const rx = 114 * p.scale;
       const ry = 100 * p.scale;
@@ -1433,12 +1607,19 @@
     const activeState = getEffectiveDogState();
     lastSyncedUiState = activeState;
     for (const btn of stateBtns) {
-      const active = btn.dataset.state === activeState;
+      const active = !inputState.roamBarkEnabled && btn.dataset.state === activeState;
       btn.classList.toggle('is-active', active);
       btn.setAttribute('aria-pressed', String(active));
     }
     for (const el of ctxStateChecks) {
-      el.textContent = el.dataset.chkState === activeState ? '✓' : '';
+      el.textContent = !inputState.roamBarkEnabled && el.dataset.chkState === activeState ? '✓' : '';
+    }
+    if (roamBarkBtn) {
+      roamBarkBtn.classList.toggle('is-active', inputState.roamBarkEnabled);
+      roamBarkBtn.setAttribute('aria-pressed', String(inputState.roamBarkEnabled));
+    }
+    if (ctxChkRoamBarkEl) {
+      ctxChkRoamBarkEl.textContent = inputState.roamBarkEnabled ? '✓' : '';
     }
   }
 
@@ -1456,6 +1637,7 @@
     }
     if (ctxChkSoundEl) ctxChkSoundEl.textContent = soundEnabled ? '✓' : '';
     if (ctxChkPopupsEl) ctxChkPopupsEl.textContent = showKeyPopups ? '✓' : '';
+    if (ctxChkRoamBarkEl) ctxChkRoamBarkEl.textContent = inputState.roamBarkEnabled ? '✓' : '';
     for (const el of ctxViewChecks) {
       el.textContent = el.dataset.chkView === currentView ? '✓' : '';
     }
@@ -1612,6 +1794,9 @@
     cancelActiveTreat();
 
     if (stateId === 'sleepy') {
+      if (inputState.roamBarkEnabled) {
+        setRoamBarkMode(false, { silent: true });
+      }
       manualDogState = 'sleepy';
       if (inputState.idleTime < 12.0) {
         inputState.idleTime = 12.1;
@@ -1638,6 +1823,9 @@
     }
 
     if (stateId === 'normal') {
+      if (inputState.roamBarkEnabled) {
+        setRoamBarkMode(false, { silent: true });
+      }
       for (const { dog } of activePlacements) {
         dog.state.bounce = Math.max(dog.state.bounce, 0.72);
         dog.state.leftEarKick = Math.max(dog.state.leftEarKick, 0.65);
@@ -1776,6 +1964,189 @@
     incrementAction('摸了摸小狗的脑袋夸夸 💕');
   }
 
+  const BARK_PHRASES = [
+    { text: '汪！', pattern: 'single', weight: 28 },
+    { text: '汪汪！', pattern: 'double', weight: 30 },
+    { text: '汪汪汪！', pattern: 'triple', weight: 14 },
+    { text: '嗷呜～', pattern: 'howl', weight: 10 },
+    { text: '巡逻中 汪！', pattern: 'double', weight: 10 },
+    { text: '本汪来逛逛！', pattern: 'double', weight: 8 },
+    { text: '谁在摸鱼？汪！', pattern: 'single', weight: 8 },
+    { text: '报告！安全 汪！', pattern: 'double', weight: 7 },
+  ];
+
+  function pickBarkPhrase(kickoff = false) {
+    if (kickoff) {
+      return { text: '汪汪！出发巡逻～', pattern: 'double' };
+    }
+    let total = 0;
+    for (const item of BARK_PHRASES) total += item.weight;
+    let r = Math.random() * total;
+    for (const item of BARK_PHRASES) {
+      r -= item.weight;
+      if (r <= 0) return item;
+    }
+    return BARK_PHRASES[0];
+  }
+
+  function spawnBarkBubble(x, y, text, def, facing) {
+    // Keep at most 2 bubbles on screen so desktop window never looks cluttered
+    if (inputState.barkBubbles.length >= 2) {
+      inputState.barkBubbles.shift();
+    }
+    inputState.barkBubbles.push({
+      text,
+      x,
+      y,
+      baseX: x,
+      vy: -14,
+      age: 0,
+      maxLife: 1.55,
+      facing: facing < 0 ? -1 : 1,
+      outline: def.outline,
+      accent: def.desk.accentTop1,
+      wobblePhase: Math.random() * Math.PI * 2,
+    });
+  }
+
+  function spawnBarkWaves(x, y, dir, color) {
+    inputState.barkWaves.push({
+      x,
+      y,
+      dir: dir < 0 ? -1 : 1,
+      age: 0,
+      maxLife: 0.42,
+      color: color || '#FF9A3C',
+    });
+  }
+
+  function spawnDustPuff(x, y, dir) {
+    if (inputState.dustPuffs.length > 24) return;
+    inputState.dustPuffs.push({
+      x: x + (Math.random() - 0.5) * 14,
+      y: y + (Math.random() - 0.5) * 6,
+      vx: -dir * (18 + Math.random() * 24) + (Math.random() - 0.5) * 10,
+      vy: -(10 + Math.random() * 18),
+      size: 6 + Math.random() * 5.5,
+      age: 0,
+      maxLife: 0.42 + Math.random() * 0.2,
+    });
+  }
+
+  function triggerDogBark(options = {}) {
+    const kickoff = Boolean(options.kickoff);
+    const chosen = options.text
+      ? { text: options.text, pattern: options.pattern || 'double' }
+      : pickBarkPhrase(kickoff);
+
+    const facing = inputState.roamFacing < 0 ? -1 : 1;
+
+    for (const p of activePlacements) {
+      const st = p.dog.state;
+      const def = p.dog.def;
+      const dur = chosen.pattern === 'howl' ? 0.44 : 0.28;
+      st.barkDuration = dur;
+      st.barkTimer = dur;
+      st.barkQueue.length = 0;
+
+      if (chosen.pattern === 'double') {
+        st.barkQueue.push({ delay: 0.16, duration: 0.26 });
+      } else if (chosen.pattern === 'triple') {
+        st.barkQueue.push({ delay: 0.14, duration: 0.22 });
+        st.barkQueue.push({ delay: 0.28, duration: 0.24 });
+      }
+
+      st.bounce = Math.max(st.bounce, 1.05);
+      st.leftEarKick = Math.max(st.leftEarKick, 1.05);
+      st.rightEarKick = Math.max(st.rightEarKick, 1.05);
+      st.excitement = 1.0;
+      if (def.face.sunglasses) st.glintProgress = 0.01;
+
+      const bodyX = DOG_X + st.leanX;
+      const headX = p.cx + bodyX * facing * p.scale;
+      const headY = p.baseY - 204 * p.scale;
+
+      spawnBarkWaves(headX + facing * 42 * p.scale, headY + 14 * p.scale, facing, def.desk.accentTop1);
+      spawnBarkBubble(
+        headX + facing * 14 * p.scale,
+        headY - 122 * p.scale,
+        chosen.text,
+        def,
+        facing
+      );
+      playBarkSound(p.dog.id, chosen.pattern);
+    }
+
+    if (statusHintEl && inputState.roamBarkEnabled) {
+      statusHintEl.textContent = `🐾 逛吠模式进行中：「${chosen.text}」· ${
+        soundEnabled ? '音效已开启 🔊' : '开启音效可听汪汪声 🔇'
+      }`;
+    }
+  }
+
+  function setRoamBarkMode(enabled, options = {}) {
+    const next = Boolean(enabled);
+    const fromBackend = Boolean(options.fromBackend);
+    const silent = Boolean(options.silent);
+
+    if (next) {
+      cancelActiveTreat();
+      wakeFromIdle(false);
+      manualDogState = 'normal';
+    }
+
+    inputState.roamBarkEnabled = next;
+    if (next) {
+      inputState.roamEnabledAt = inputState.time;
+      inputState.roamMoving = false;
+      inputState.roamSpeed = 0;
+      inputState.roamDustTimer = 0;
+
+      // Initialize Web stage patrol state when not driven by Tauri backend
+      if (!IS_TAURI) {
+        const p = activePlacements[0];
+        const midX = stage.w * 0.5;
+        inputState.roamFacing = p.cx >= midX ? -1 : 1;
+        inputState.roamWeb.phase = 'pause';
+        inputState.roamWeb.timer = 0.36;
+        inputState.roamWeb.targetX = p.cx;
+        inputState.roamWeb.targetY = p.baseY;
+        inputState.roamWeb.curSpeed = 0;
+        inputState.roamWeb.midBarkTimer = 2.2 + Math.random() * 1.8;
+        inputState.roamWeb.extraBarkTimer = 0;
+        triggerDogBark({ kickoff: true });
+      }
+
+      if (!silent && statusHintEl) {
+        statusHintEl.textContent = `🐾 已开启「逛吠模式」· 小狗开始四处巡逻汪汪叫啦！${
+          soundEnabled ? '' : '（点击右上角或菜单开启音效可听叫声 🔊）'
+        }`;
+      }
+    } else {
+      inputState.roamMoving = false;
+      inputState.roamSpeed = 0;
+      inputState.roamFacing = 1;
+      for (const dogObj of dogsList) {
+        dogObj.state.barkQueue.length = 0;
+      }
+      if (!silent && statusHintEl) {
+        statusHintEl.textContent = '已关闭「逛吠模式」· 小狗乖乖回到工位继续陪你敲键盘 🐶';
+      }
+    }
+
+    syncSoundAndMenuCheckmarks();
+    if (!fromBackend && IS_TAURI) {
+      tauriInvoke('sync_pet_preferences', {
+        view: currentView,
+        deskDir,
+        soundEnabled,
+        showPopups: showKeyPopups,
+        roamBark: inputState.roamBarkEnabled,
+      });
+    }
+    drawScene();
+  }
+
   function executeMenuCommand(action, value) {
     switch (action) {
       case 'set-view':
@@ -1792,6 +2163,12 @@
         break;
       case 'nap':
         triggerNapCommand();
+        break;
+      case 'set-roam-bark':
+        setRoamBarkMode(value === 'true', { fromBackend: true });
+        break;
+      case 'toggle-roam-bark':
+        setRoamBarkMode(!inputState.roamBarkEnabled);
         break;
       case 'set-desk-dir':
         if (value === 'dog' || value === 'user') applyDeskDirection(value, true);
@@ -1864,6 +2241,15 @@
       closeWebContextMenu();
       setDogState(btn.dataset.state || 'normal', { toggleOnSame: true });
       btn.blur();
+    });
+  }
+
+  if (roamBarkBtn) {
+    roamBarkBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      closeWebContextMenu();
+      setRoamBarkMode(!inputState.roamBarkEnabled);
+      roamBarkBtn.blur();
     });
   }
 
@@ -2593,12 +2979,150 @@
       } else {
         inputState.idleTime = Math.max(inputState.idleTime, 12.0) + dt;
       }
-    } else if (manualDogState !== 'normal') {
+    } else if (manualDogState !== 'normal' || inputState.roamBarkEnabled) {
       inputState.idleTime = 0;
     } else if (isUserBusy) {
       inputState.idleTime = 0;
     } else {
       inputState.idleTime += dt;
+    }
+
+    // 2b. Roam & Bark Patrol Mode ("逛吠模式") Simulation
+    const [visiblePlacementForRoam] = activePlacements;
+    const homeStageX = stage.w * 0.5;
+    const homeStageY = IS_DESKTOP_PET ? 412 : 446;
+
+    if (!IS_TAURI && visiblePlacementForRoam) {
+      const rw = inputState.roamWeb;
+      if (inputState.roamBarkEnabled && !inputState.activeTreat) {
+        const hoverGraceDone = inputState.time - inputState.roamEnabledAt > 2.0;
+        const hoveringPet =
+          hoverGraceDone &&
+          inputState.pointerInWindow &&
+          Boolean(findHoveredPuppyPlacement(inputState.pointerStageX, inputState.pointerStageY));
+
+        if (hoveringPet) {
+          inputState.roamMoving = false;
+          inputState.roamSpeed = 0;
+        } else if (rw.phase === 'pause') {
+          inputState.roamMoving = false;
+          inputState.roamSpeed = 0;
+          if (rw.extraBarkTimer > 0) {
+            rw.extraBarkTimer -= dt;
+            if (rw.extraBarkTimer <= 0) {
+              triggerDogBark();
+            }
+          }
+          rw.timer -= dt;
+          if (rw.timer <= 0) {
+            const marginX = IS_DESKTOP_PET ? 85 : 220;
+            const minX = marginX;
+            const maxX = Math.max(minX, stage.w - marginX);
+            const minY = IS_DESKTOP_PET ? 340 : 340;
+            const maxY = IS_DESKTOP_PET ? 450 : 605;
+
+            let bestX = visiblePlacementForRoam.cx;
+            let bestY = visiblePlacementForRoam.baseY;
+            let bestScore = -1;
+            for (let attempt = 0; attempt < 8; attempt++) {
+              const cx = lerp(minX, maxX, Math.random());
+              const cy = lerp(minY, maxY, Math.random());
+              const d = Math.hypot(cx - visiblePlacementForRoam.cx, cy - visiblePlacementForRoam.baseY);
+              const score = d >= 180 && d <= 560 ? 1000 + d : d;
+              if (score > bestScore) {
+                bestScore = score;
+                bestX = cx;
+                bestY = cy;
+              }
+            }
+            rw.targetX = bestX;
+            rw.targetY = bestY;
+            rw.cruiseSpeed = 145 + Math.random() * 65;
+            rw.curSpeed = 42;
+            rw.phase = 'walk';
+            if (bestX < visiblePlacementForRoam.cx - 8) inputState.roamFacing = -1;
+            else if (bestX > visiblePlacementForRoam.cx + 8) inputState.roamFacing = 1;
+            inputState.roamMoving = true;
+            inputState.roamSpeed = rw.cruiseSpeed;
+          }
+        } else {
+          const dx = rw.targetX - visiblePlacementForRoam.cx;
+          const dy = rw.targetY - visiblePlacementForRoam.baseY;
+          const dist = Math.hypot(dx, dy);
+
+          if (dist <= 6) {
+            visiblePlacementForRoam.cx = rw.targetX;
+            visiblePlacementForRoam.baseY = rw.targetY;
+            rw.phase = 'pause';
+            rw.curSpeed = 0;
+            rw.timer = 1.0 + Math.random() * 1.25;
+            inputState.roamMoving = false;
+            inputState.roamSpeed = 0;
+            if (Math.random() < 0.85) {
+              triggerDogBark();
+              rw.extraBarkTimer = Math.random() < 0.35 ? 0.72 + Math.random() * 0.35 : 0;
+            } else {
+              rw.extraBarkTimer = 0;
+            }
+          } else {
+            const desiredSpeed = dist < 95 ? Math.max(48, rw.cruiseSpeed * (dist / 95)) : rw.cruiseSpeed;
+            rw.curSpeed = lerp(rw.curSpeed, desiredSpeed, 1 - Math.exp(-dt * 8.5));
+            const step = Math.min(dist, rw.curSpeed * dt);
+            visiblePlacementForRoam.cx += (dx / dist) * step;
+            visiblePlacementForRoam.baseY += (dy / dist) * step;
+            inputState.roamMoving = true;
+            inputState.roamSpeed = rw.curSpeed;
+
+            rw.midBarkTimer -= dt;
+            if (rw.midBarkTimer <= 0) {
+              rw.midBarkTimer = 2.6 + Math.random() * 2.4;
+              triggerDogBark();
+            }
+          }
+        }
+      } else {
+        // Smoothly glide back to home desk center when roam-bark is turned off in Web mode
+        const backFollow = 1 - Math.exp(-dt * 7.5);
+        visiblePlacementForRoam.cx = lerp(visiblePlacementForRoam.cx, homeStageX, backFollow);
+        visiblePlacementForRoam.baseY = lerp(visiblePlacementForRoam.baseY, homeStageY, backFollow);
+        if (Math.abs(visiblePlacementForRoam.cx - homeStageX) < 0.4) visiblePlacementForRoam.cx = homeStageX;
+        if (Math.abs(visiblePlacementForRoam.baseY - homeStageY) < 0.4) visiblePlacementForRoam.baseY = homeStageY;
+      }
+    }
+
+    inputState.roamBlend = lerp(
+      inputState.roamBlend,
+      inputState.roamBarkEnabled ? 1 : 0,
+      1 - Math.exp(-dt * 9)
+    );
+    const walkTarget = inputState.roamBarkEnabled && inputState.roamMoving ? 1 : 0;
+    inputState.roamWalkBlend = lerp(
+      inputState.roamWalkBlend,
+      walkTarget,
+      1 - Math.exp(-dt * (walkTarget > inputState.roamWalkBlend ? 12 : 9))
+    );
+    if (inputState.roamWalkBlend > 0.02) {
+      const strideSpeed = 10.5 + clamp(inputState.roamSpeed / 180, 0, 1.3) * 4.5;
+      inputState.roamWalkPhase += dt * strideSpeed;
+      inputState.roamDustTimer -= dt;
+      if (inputState.roamWalkBlend > 0.45 && inputState.roamDustTimer <= 0 && visiblePlacementForRoam) {
+        inputState.roamDustTimer = 0.14 + Math.random() * 0.08;
+        const fDir = inputState.roamFacing < 0 ? -1 : 1;
+        spawnDustPuff(
+          visiblePlacementForRoam.cx - fDir * 24 * visiblePlacementForRoam.scale,
+          visiblePlacementForRoam.baseY - 10 * visiblePlacementForRoam.scale,
+          fDir
+        );
+      }
+    }
+    const targetFacingScale = inputState.roamBarkEnabled ? (inputState.roamFacing < 0 ? -1 : 1) : 1;
+    inputState.roamFacingScale = lerp(
+      inputState.roamFacingScale,
+      targetFacingScale,
+      1 - Math.exp(-dt * 16)
+    );
+    if (Math.abs(inputState.roamFacingScale - targetFacingScale) < 0.005) {
+      inputState.roamFacingScale = targetFacingScale;
     }
 
     const effectiveState = getEffectiveDogState();
@@ -2647,6 +3171,39 @@
       // Chew & Wake Shock timers
       st.chewTimer = Math.max(0, st.chewTimer - dt);
       st.wakeShockTimer = Math.max(0, st.wakeShockTimer - dt);
+
+      // Bark animation timer & staggered multi-bark queue ("汪汪!")
+      if (st.barkQueue.length > 0) {
+        for (let qi = st.barkQueue.length - 1; qi >= 0; qi--) {
+          st.barkQueue[qi].delay -= dt;
+          if (st.barkQueue[qi].delay <= 0) {
+            const nextBark = st.barkQueue.splice(qi, 1)[0];
+            st.barkDuration = nextBark.duration;
+            st.barkTimer = nextBark.duration;
+            st.bounce = Math.max(st.bounce, 0.92);
+            st.leftEarKick = Math.max(st.leftEarKick, 0.88);
+            st.rightEarKick = Math.max(st.rightEarKick, 0.88);
+            if (placement) {
+              const fDir = inputState.roamFacing < 0 ? -1 : 1;
+              const hx = placement.cx + (DOG_X + st.leanX) * fDir * placement.scale;
+              const hy = placement.baseY - 204 * placement.scale;
+              spawnBarkWaves(
+                hx + fDir * 42 * placement.scale,
+                hy + 14 * placement.scale,
+                fDir,
+                dogObj.def.desk.accentTop1
+              );
+            }
+          }
+        }
+      }
+      if (st.barkTimer > 0) {
+        st.barkTimer = Math.max(0, st.barkTimer - dt);
+        const progress = 1 - st.barkTimer / Math.max(0.05, st.barkDuration);
+        st.barkBlend = Math.sin(clamp(progress, 0, 1) * Math.PI);
+      } else {
+        st.barkBlend = lerp(st.barkBlend, 0, 1 - Math.exp(-dt * 18));
+      }
 
       // Sleep & Yawn smooth blends
       const dogYawnTarget = st.chewTimer > 0 ? 0 : globalYawnTarget;
@@ -2737,6 +3294,9 @@
       if (isPetted || inputState.activeTreat) st.excitement = Math.max(st.excitement, 0.65);
       if (isForcedDrool) st.excitement = Math.max(st.excitement, 0.55);
       if (isForcedOverdrive) st.excitement = Math.max(st.excitement, 0.88);
+      if (inputState.roamBarkEnabled) {
+        st.excitement = Math.max(st.excitement, inputState.roamMoving ? 0.78 : 0.45);
+      }
       if (inputState.combo >= 10) {
         st.excitement = Math.max(st.excitement, clamp(inputState.combo / FULL_OVERDRIVE_COMBO, 0.35, 1.0));
       }
@@ -2753,6 +3313,14 @@
       if (st.sleepBlend > 0.35) {
         st.targetLookX = 0;
         st.targetLookY = 0.28;
+      } else if (inputState.roamBarkEnabled && !inputState.activeTreat) {
+        if (inputState.roamMoving) {
+          st.targetLookX = 0.34 * inputState.roamWalkBlend;
+          st.targetLookY = -0.06 * inputState.roamWalkBlend;
+        } else {
+          st.targetLookX = Math.sin(inputState.time * 1.45 + dogObj.def.phaseOffset) * 0.26;
+          st.targetLookY = -0.05;
+        }
       } else if (inputState.activeTreat && placement) {
         const headStageX = placement.cx + (DOG_X + st.leanX) * placement.scale;
         const headStageY = placement.baseY - 204 * placement.scale;
@@ -2813,8 +3381,41 @@
       const rightHomeY = RIGHT_SQUAT_HOME_Y;
       const mouseLeft = isMouseOnLeft();
 
-      // Left Paw ('squat' <-> 'mouse' [when mouse on left] / 'keyboard')
       const lp = st.leftPaw;
+      const rp = st.rightPaw;
+
+      if (inputState.roamBlend > 0.25) {
+        // Trotting front-paw gait during 逛吠模式!
+        const wb = inputState.roamWalkBlend;
+        const wp = inputState.roamWalkPhase;
+        const lCycle = Math.sin(wp);
+        const rCycle = Math.sin(wp + Math.PI);
+        const lLift = Math.max(0, Math.cos(wp)) * wb;
+        const rLift = Math.max(0, Math.cos(wp + Math.PI)) * wb;
+
+        lp.mode = 'squat';
+        lp.targetX = leftHomeX + lCycle * 15 * wb;
+        lp.targetY = leftHomeY - lLift * 15;
+        lp.x = lerp(lp.x, lp.targetX, pawFollow);
+        lp.y = lerp(lp.y, lp.targetY, pawFollow);
+        lp.lift = lerp(lp.lift, lLift * 0.72, 1 - Math.exp(-dt * 22));
+        lp.press = lerp(lp.press, 0, 1 - Math.exp(-dt * 20));
+        lp.ghostAlpha = Math.max(0, lp.ghostAlpha - dt * 3.8);
+        lp.isExtended = wb > 0.05;
+
+        rp.mode = 'squat';
+        rp.targetX = rightHomeX + rCycle * 15 * wb;
+        rp.targetY = rightHomeY - rLift * 15;
+        rp.x = lerp(rp.x, rp.targetX, pawFollow);
+        rp.y = lerp(rp.y, rp.targetY, pawFollow);
+        rp.lift = lerp(rp.lift, rLift * 0.72, 1 - Math.exp(-dt * 22));
+        rp.press = lerp(rp.press, 0, 1 - Math.exp(-dt * 20));
+        rp.ghostAlpha = Math.max(0, rp.ghostAlpha - dt * 3.8);
+        rp.isExtended = wb > 0.05;
+        continue;
+      }
+
+      // Left Paw ('squat' <-> 'mouse' [when mouse on left] / 'keyboard')
       const leftKeyWanted =
         lp.mode === 'keyboard' && (lp.activeKeyCode !== null || inputState.time < lp.holdUntil);
       if (leftKeyWanted) {
@@ -2864,7 +3465,6 @@
       lp.press = lerp(lp.press, lpClicking ? 1 : 0, 1 - Math.exp(-dt * 28));
 
       // Right Paw ('squat' <-> 'mouse' [when mouse on right] / 'keyboard')
-      const rp = st.rightPaw;
       const rightKeyWanted =
         rp.mode === 'keyboard' && (rp.activeKeyCode !== null || inputState.time < rp.holdUntil);
 
@@ -2999,6 +3599,35 @@
       sw.vx *= Math.exp(-dt * 1.8);
       if (sw.life >= sw.maxLife) {
         inputState.sweatDrops.splice(i, 1);
+      }
+    }
+
+    for (let i = inputState.barkBubbles.length - 1; i >= 0; i--) {
+      const bb = inputState.barkBubbles[i];
+      bb.age += dt;
+      bb.y += bb.vy * dt;
+      bb.vy *= Math.exp(-dt * 2.2);
+      if (bb.age >= bb.maxLife) {
+        inputState.barkBubbles.splice(i, 1);
+      }
+    }
+
+    for (let i = inputState.barkWaves.length - 1; i >= 0; i--) {
+      inputState.barkWaves[i].age += dt;
+      if (inputState.barkWaves[i].age >= inputState.barkWaves[i].maxLife) {
+        inputState.barkWaves.splice(i, 1);
+      }
+    }
+
+    for (let i = inputState.dustPuffs.length - 1; i >= 0; i--) {
+      const dp = inputState.dustPuffs[i];
+      dp.age += dt;
+      dp.x += dp.vx * dt;
+      dp.y += dp.vy * dt;
+      dp.vx *= Math.exp(-dt * 3.5);
+      dp.vy *= Math.exp(-dt * 3.0);
+      if (dp.age >= dp.maxLife) {
+        inputState.dustPuffs.splice(i, 1);
       }
     }
   }
@@ -3374,12 +4003,31 @@
     const lineW = def.outlineW;
     const tSpec = def.torso;
 
-    // Squatting hind thighs & tucked hind paws
+    // Squatting hind thighs & tucked hind paws (with subtle trotting gait in 逛吠模式!)
+    const walkB = inputState.roamWalkBlend;
+    const walkP = inputState.roamWalkPhase;
     for (const side of [-1, 1]) {
+      const stride = walkB > 0.01 ? Math.sin(walkP + (side < 0 ? Math.PI : 0)) * 9.5 * walkB : 0;
+      const lift = walkB > 0.01 ? Math.max(0, Math.cos(walkP + (side < 0 ? Math.PI : 0))) * 7.5 * walkB : 0;
+
       c.beginPath();
       c.moveTo(bodyX + side * 46, -98 + breath * 0.3);
-      c.bezierCurveTo(bodyX + side * 86, -92 + breath * 0.2, bodyX + side * 94, -50, bodyX + side * 80, -22);
-      c.bezierCurveTo(bodyX + side * 70, -12, bodyX + side * 52, -14, bodyX + side * 44, -26);
+      c.bezierCurveTo(
+        bodyX + side * 86 + stride * 0.35,
+        -92 + breath * 0.2 - lift * 0.25,
+        bodyX + side * 94 + stride * 0.7,
+        -50 - lift * 0.45,
+        bodyX + side * 80 + stride,
+        -22 - lift
+      );
+      c.bezierCurveTo(
+        bodyX + side * 70 + stride,
+        -12 - lift,
+        bodyX + side * 52 + stride * 0.6,
+        -14 - lift * 0.6,
+        bodyX + side * 44,
+        -26
+      );
       c.closePath();
       c.fillStyle = tSpec.hindThigh;
       c.fill();
@@ -3389,11 +4037,11 @@
       c.stroke();
 
       c.beginPath();
-      c.ellipse(bodyX + side * 71, -17, 18, 10.5, side * 0.12, 0, Math.PI * 2);
+      c.ellipse(bodyX + side * 71 + stride, -17 - lift, 18, 10.5, side * 0.12 - stride * 0.012, 0, Math.PI * 2);
       if (tSpec.hindPaw.length === 1) {
         c.fillStyle = tSpec.hindPaw[0];
       } else {
-        const hpg = c.createLinearGradient(bodyX + side * 56, -24, bodyX + side * 84, -10);
+        const hpg = c.createLinearGradient(bodyX + side * 56 + stride, -24 - lift, bodyX + side * 84 + stride, -10 - lift);
         hpg.addColorStop(0, tSpec.hindPaw[0]);
         hpg.addColorStop(0.55, tSpec.hindPaw[1]);
         hpg.addColorStop(1, tSpec.hindPaw[2]);
@@ -3408,8 +4056,8 @@
       c.lineWidth = lineW * 0.68;
       for (const ox of [66, 75]) {
         c.beginPath();
-        c.moveTo(bodyX + side * ox, -21);
-        c.lineTo(bodyX + side * (ox + 1), -12);
+        c.moveTo(bodyX + side * ox + stride, -21 - lift);
+        c.lineTo(bodyX + side * (ox + 1) + stride, -12 - lift);
         c.stroke();
       }
     }
@@ -5024,8 +5672,58 @@
       c.fill();
     }
 
-    // 5. Mouth State Machine: Yawning 'O' | Berserk Fang Snarl ("咬牙切齿") | Happy / Treat | Calm ω Smile
-    if (yb > 0.16 && hb < 0.3) {
+    // 5. Mouth State Machine: Barking 'Woof!' | Yawning 'O' | Berserk Fang Snarl ("咬牙切齿") | Happy / Treat | Calm ω Smile
+    const barkOpen = st.barkBlend || 0;
+    if (barkOpen > 0.12 && sb < 0.25) {
+      // Energetic cartoon barking mouth ("汪！") with rosy tongue & tiny cute fangs!
+      const rx = 15 + barkOpen * 10;
+      const ry = 10 + barkOpen * 18;
+      const cy = 28 + barkOpen * 8.5;
+      c.save();
+      c.beginPath();
+      c.moveTo(-rx, cy - ry * 0.55);
+      c.quadraticCurveTo(0, cy - ry * 0.92, rx, cy - ry * 0.55);
+      c.bezierCurveTo(rx * 1.05, cy + ry * 0.45, rx * 0.58, cy + ry, 0, cy + ry);
+      c.bezierCurveTo(-rx * 0.58, cy + ry, -rx * 1.05, cy + ry * 0.45, -rx, cy - ry * 0.55);
+      c.closePath();
+      c.fillStyle = '#4B2222';
+      c.fill();
+
+      c.save();
+      c.clip();
+      // Rosy barking tongue
+      const tg = c.createLinearGradient(0, cy, 0, cy + ry + 2);
+      tg.addColorStop(0, '#EA7C8C');
+      tg.addColorStop(1, '#FBAAB7');
+      c.fillStyle = tg;
+      c.beginPath();
+      c.ellipse(0, cy + ry * 0.52, rx * 0.72, ry * 0.62, 0, 0, Math.PI * 2);
+      c.fill();
+
+      // Cute tiny white canine fangs at upper corners
+      c.fillStyle = '#FFFFFF';
+      for (const side of [-1, 1]) {
+        c.beginPath();
+        c.moveTo(side * (rx * 0.42), cy - ry * 0.64);
+        c.lineTo(side * (rx * 0.62), cy - ry * 0.56);
+        c.lineTo(side * (rx * 0.5), cy - ry * 0.18);
+        c.closePath();
+        c.fill();
+      }
+      c.restore();
+
+      c.beginPath();
+      c.moveTo(-rx, cy - ry * 0.55);
+      c.quadraticCurveTo(0, cy - ry * 0.92, rx, cy - ry * 0.55);
+      c.bezierCurveTo(rx * 1.05, cy + ry * 0.45, rx * 0.58, cy + ry, 0, cy + ry);
+      c.bezierCurveTo(-rx * 0.58, cy + ry, -rx * 1.05, cy + ry * 0.45, -rx, cy - ry * 0.55);
+      c.closePath();
+      c.strokeStyle = fSpec.lipStroke;
+      c.lineWidth = 3.1;
+      c.lineJoin = 'round';
+      c.stroke();
+      c.restore();
+    } else if (yb > 0.16 && hb < 0.3) {
       // Cute sleepy oval 'O' yawn!
       const rx = 11 + yb * 6;
       const ry = 6 + yb * 17;
@@ -5171,7 +5869,7 @@
 
     // 6. Sunny's Signature Mini White Bone (clenched tightly & trembling furiously in Berserk Mode!)
     if (fSpec.mouthBone) {
-      const openRef = Math.max(hb, ab * 0.8, bb * 0.95);
+      const openRef = Math.max(hb, ab * 0.8, bb * 0.95, barkOpen);
       const rageShake = bb > 0.15 ? Math.sin(inputState.time * 52) * 0.14 * bb : 0;
       const boneWiggle =
         Math.sin(inputState.time * 4.2) * 0.06 +
@@ -5308,16 +6006,29 @@
         : Math.cos(inputState.time * 46 + def.phaseOffset * 1.4) * 1.0 * st.berserkBlend;
 
     const headX = bodyX + st.lookX * 11 + rageTremorX;
+    const barkPop = isExport ? 0 : st.barkBlend || 0;
     const headY =
-      -204 + breath * 0.85 + st.lookY * 6.5 - st.bounce * 4.5 + sleepNod + yawnLift + rageTremorY;
+      -204 +
+      breath * 0.85 +
+      st.lookY * 6.5 -
+      st.bounce * 4.5 +
+      sleepNod +
+      yawnLift +
+      rageTremorY -
+      barkPop * 8.5;
     const headTilt =
-      def.baseTilt + st.leanX * 0.002 + st.lookX * 0.11 + st.sleepBlend * 0.055 - st.yawnBlend * 0.04;
+      def.baseTilt +
+      st.leanX * 0.002 +
+      st.lookX * 0.11 +
+      st.sleepBlend * 0.055 -
+      st.yawnBlend * 0.04 -
+      barkPop * 0.13;
 
     c.save();
     c.translate(headX, headY);
     c.rotate(headTilt);
-    if (chewSquash !== 0) {
-      c.scale(1 + chewSquash, 1 - chewSquash * 0.7);
+    if (chewSquash !== 0 || barkPop > 0.02) {
+      c.scale(1 + chewSquash - barkPop * 0.03, 1 - chewSquash * 0.7 + barkPop * 0.045);
     }
 
     const crownShiftX = -st.lookX * 3.5;
@@ -5886,6 +6597,13 @@
     const st = dog.state;
     const breath = isExport ? 0 : Math.sin(st.breathPhase) * 2.8;
     const bodyX = DOG_X + st.leanX;
+    const roamB = isExport ? 0 : inputState.roamBlend;
+    const walkB = isExport ? 0 : inputState.roamWalkBlend;
+    const walkP = inputState.roamWalkPhase;
+    const walkHop = walkB > 0.01 ? Math.abs(Math.sin(walkP)) * 12.0 * walkB : 0;
+    const walkTilt = walkB > 0.01 ? Math.sin(walkP) * 0.055 * walkB : 0;
+    const facingScale = isExport ? 1 : inputState.roamFacingScale;
+    const safeFacingScale = Math.abs(facingScale) < 0.04 ? (facingScale < 0 ? -0.04 : 0.04) : facingScale;
 
     c.save();
     c.translate(cx, baseY);
@@ -5896,11 +6614,12 @@
       drawPuppyOverdriveAura(c, bodyX);
     }
 
-    // 1. Ground Shadow
+    // 1. Ground Shadow (shrinks slightly when puppy hops during trotting!)
     if (!isExport) {
+      const shadowScale = 1 - walkHop * 0.011;
       c.fillStyle = isDarkTheme ? 'rgba(0, 0, 0, 0.38)' : def.groundShadow.light;
       c.beginPath();
-      c.ellipse(bodyX, -3, 102, 20, 0, 0, Math.PI * 2);
+      c.ellipse(bodyX * safeFacingScale, -3, 102 * shadowScale, 20 * shadowScale, 0, 0, Math.PI * 2);
       c.fill();
 
       if (def.groundShadow.sketchLines) {
@@ -5908,16 +6627,34 @@
         c.lineWidth = 1.8;
         c.lineCap = 'round';
         c.beginPath();
-        c.moveTo(bodyX - 94, 2);
-        c.lineTo(bodyX - 60, 3);
-        c.moveTo(bodyX + 58, 3);
-        c.lineTo(bodyX + 92, 1);
+        c.moveTo(bodyX * safeFacingScale - 94 * shadowScale, 2);
+        c.lineTo(bodyX * safeFacingScale - 60 * shadowScale, 3);
+        c.moveTo(bodyX * safeFacingScale + 58 * shadowScale, 3);
+        c.lineTo(bodyX * safeFacingScale + 92 * shadowScale, 1);
         c.stroke();
       }
     }
 
+    // 2. Desk Workstation fades & tucks away smoothly while roaming in 逛吠模式!
+    if (roamB < 0.99) {
+      c.save();
+      if (roamB > 0.01) {
+        c.globalAlpha = 1 - roamB;
+        c.translate(0, roamB * 18);
+      }
+      drawWorkstationDesk(c, def);
+      c.restore();
+    }
+
+    // 3. Puppy Character (applies smooth facing turn, trotting hop & playful waddle!)
+    c.save();
+    if (roamB > 0.005 || Math.abs(safeFacingScale - 1) > 0.005) {
+      c.translate(0, -walkHop);
+      c.scale(safeFacingScale, 1);
+      if (walkTilt !== 0) c.rotate(walkTilt);
+    }
+
     // The tail passes over the keycaps while its root stays tucked behind the haunch.
-    drawWorkstationDesk(c, def);
     drawSharedTail(c, def, st, bodyX, breath);
     drawSharedTorsoAndHindLegs(c, def, st, bodyX, breath);
 
@@ -5985,6 +6722,7 @@
     drawSharedNeckAccessory(c, def, st, bodyX, breath);
     drawSharedHeadAndFace(c, def, st, bodyX, breath, isExport);
 
+    c.restore();
     c.restore();
   }
 
@@ -6169,6 +6907,124 @@
       ctx.beginPath();
       ctx.arc(-sz * 0.26, sz * 0.42, Math.max(1.0, sz * 0.24), 0, Math.PI * 2);
       ctx.fill();
+      ctx.restore();
+    }
+
+    // Trotting Footstep Dust Puffs (🐾 逛吠模式小脚印扬尘)
+    for (const dp of inputState.dustPuffs) {
+      const t = dp.age / dp.maxLife;
+      const alpha = (1 - easeOutCubic(t)) * 0.58;
+      const r = dp.size * (0.65 + t * 0.75);
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = isDarkTheme ? 'rgba(218, 228, 245, 0.75)' : 'rgba(255, 250, 240, 0.92)';
+      ctx.beginPath();
+      ctx.arc(dp.x, dp.y, r, 0, Math.PI * 2);
+      ctx.arc(dp.x - r * 0.65, dp.y + r * 0.25, r * 0.68, 0, Math.PI * 2);
+      ctx.arc(dp.x + r * 0.6, dp.y + r * 0.22, r * 0.62, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // Comic Bark Sound-Wave Arcs (')))' radiating from snout!)
+    for (const bw of inputState.barkWaves) {
+      const t = bw.age / bw.maxLife;
+      const alpha = (1 - easeOutCubic(t)) * 0.92;
+      ctx.save();
+      ctx.translate(bw.x, bw.y);
+      ctx.scale(bw.dir, 1);
+      ctx.globalAlpha = alpha;
+      ctx.lineCap = 'round';
+
+      for (let ring = 0; ring < 3; ring++) {
+        const ringDelay = ring * 0.14;
+        const rt = clamp((t - ringDelay) / (1 - ringDelay), 0, 1);
+        if (rt <= 0) continue;
+        const rad = 12 + ring * 11 + easeOutCubic(rt) * 24;
+        const span = 0.52 - ring * 0.05;
+
+        ctx.strokeStyle = '#FFFFFF';
+        ctx.lineWidth = 6.0 - ring * 0.9;
+        ctx.beginPath();
+        ctx.arc(0, 0, rad, -span, span);
+        ctx.stroke();
+
+        ctx.strokeStyle = bw.color;
+        ctx.lineWidth = 3.2 - ring * 0.45;
+        ctx.beginPath();
+        ctx.arc(0, 0, rad, -span, span);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    // Floating Comic Bark Speech Bubbles ("汪！", "汪汪！", "巡逻中 汪！")
+    for (const bb of inputState.barkBubbles) {
+      const t = bb.age / bb.maxLife;
+      const pop = t < 0.16 ? easeOutBack(t / 0.16) : 1;
+      const alpha = t > 0.72 ? 1 - easeOutCubic((t - 0.72) / 0.28) : 1;
+      const wobble = Math.sin(bb.age * 7.5 + bb.wobblePhase) * 0.032;
+
+      ctx.save();
+      ctx.font = '800 19px -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif';
+      const textW = ctx.measureText(bb.text).width;
+      const padX = 16;
+      const bw = Math.max(66, textW + padX * 2);
+      const bh = 38;
+
+      const drawX = clamp(bb.x, bw * 0.5 + 12, Math.max(bw * 0.5 + 12, stage.w - bw * 0.5 - 12));
+      const drawY = clamp(bb.y, bh * 0.5 + 10, stage.h - bh * 0.5 - 24);
+
+      ctx.translate(drawX, drawY);
+      ctx.rotate(wobble);
+      ctx.scale(pop, pop);
+      ctx.globalAlpha = alpha;
+
+      // Soft drop shadow
+      ctx.shadowColor = 'rgba(32, 24, 18, 0.18)';
+      ctx.shadowBlur = 10;
+      ctx.shadowOffsetY = 4;
+
+      // Speech bubble pill + pointer tail
+      const r = 16;
+      const left = -bw * 0.5;
+      const right = bw * 0.5;
+      const top = -bh * 0.5;
+      const bottom = bh * 0.5;
+      const tailX = clamp(-bb.facing * 10, left + 18, right - 18);
+
+      ctx.beginPath();
+      ctx.moveTo(left + r, top);
+      ctx.lineTo(right - r, top);
+      ctx.quadraticCurveTo(right, top, right, top + r);
+      ctx.lineTo(right, bottom - r);
+      ctx.quadraticCurveTo(right, bottom, right - r, bottom);
+      ctx.lineTo(tailX + 7, bottom);
+      ctx.lineTo(tailX - bb.facing * 4, bottom + 10);
+      ctx.lineTo(tailX - 6, bottom);
+      ctx.lineTo(left + r, bottom);
+      ctx.quadraticCurveTo(left, bottom, left, bottom - r);
+      ctx.lineTo(left, top + r);
+      ctx.quadraticCurveTo(left, top, left + r, top);
+      ctx.closePath();
+
+      const bg = ctx.createLinearGradient(0, top, 0, bottom);
+      bg.addColorStop(0, '#FFFDF7');
+      bg.addColorStop(1, '#FFF3D6');
+      ctx.fillStyle = bg;
+      ctx.fill();
+
+      ctx.shadowColor = 'transparent';
+      ctx.strokeStyle = bb.outline || '#5B4030';
+      ctx.lineWidth = 2.8;
+      ctx.lineJoin = 'round';
+      ctx.stroke();
+
+      // Cute warm dot accent & bold text
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#3B2518';
+      ctx.fillText(bb.text, 0, 1);
       ctx.restore();
     }
   }
@@ -6540,11 +7396,27 @@
       deskDir,
       soundEnabled,
       showPopups: showKeyPopups,
+      roamBark: inputState.roamBarkEnabled,
     });
 
     tauriListen('pet-menu-command', (ev) => {
       const p = ev && ev.payload ? ev.payload : {};
       executeMenuCommand(p.action, p.value || '');
+    });
+
+    tauriListen('pet-roam-state', (ev) => {
+      const p = ev && ev.payload ? ev.payload : null;
+      if (!p) return;
+      inputState.roamBarkEnabled = Boolean(p.active);
+      inputState.roamMoving = Boolean(p.moving);
+      if (typeof p.facing === 'number' && p.facing !== 0) {
+        inputState.roamFacing = p.facing < 0 ? -1 : 1;
+      }
+      inputState.roamSpeed = typeof p.speed === 'number' ? p.speed : 0;
+      if (p.bark) {
+        triggerDogBark({ kickoff: Boolean(p.kickoff) });
+      }
+      syncStateUI();
     });
 
     tauriListen('pet-autostart-error', () => {

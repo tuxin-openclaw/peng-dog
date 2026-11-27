@@ -197,6 +197,12 @@
       box-shadow: 0 3px 10px rgba(249, 115, 22, 0.36);
     }
 
+    .state-btn[data-mode="roam-bark"].is-active {
+      background: #10b981;
+      color: #ffffff;
+      box-shadow: 0 3px 10px rgba(16, 185, 129, 0.36);
+    }
+
     .treat-btn.is-active {
       background: var(--treat-active-bg);
       color: var(--treat-active-text);
@@ -346,6 +352,9 @@
       <button type="button" class="state-btn" data-state="overdrive" aria-pressed="false" title="切换狂暴暴走状态（怒目咬牙 + 暴起青筋 + 大汗淋漓 + 火焰气场 + RGB 彩虹键盘）">
         <span>🔥</span><span>狂暴</span>
       </button>
+      <button type="button" class="state-btn" id="roamBarkBtn" data-mode="roam-bark" aria-pressed="false" title="开启逛吠模式（桌宠四处巡逻溜达 + 沿途随机汪汪叫与气泡音效）">
+        <span>🐾</span><span>逛吠</span>
+      </button>
     </div>
 
     <div class="treat-bar" aria-label="投喂零食罐">
@@ -415,6 +424,9 @@
     <button type="button" class="ctx-item" data-cmd-action="feed" data-cmd-val="jerky"><span>🥩 喂炭烤小肉干</span></button>
     <button type="button" class="ctx-item" data-cmd-action="feed" data-cmd-val="cheese"><span>🧀 喂芝士奶球</span></button>
     <button type="button" class="ctx-item" data-cmd-action="pet-head" data-cmd-val=""><span>💕 摸摸头夸夸</span></button>
+    <button type="button" class="ctx-item" data-cmd-action="toggle-roam-bark" data-cmd-val="">
+      <span>🐾 逛吠模式</span><span class="ctx-check" id="ctxChkRoamBark"></span>
+    </button>
     <div class="ctx-sep"></div>
     <div class="ctx-group-title">键鼠朝向</div>
     <button type="button" class="ctx-item" data-cmd-action="set-desk-dir" data-cmd-val="dog">

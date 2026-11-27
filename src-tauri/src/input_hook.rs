@@ -146,9 +146,10 @@ pub fn start_global_input_and_passthrough(
                 let (rel_x, rel_y, interactive) = snap.evaluate_cursor(cx, cy);
 
                 let want_ignore = {
-                    let Ok(guard) = state_clone.lock() else {
+                    let Ok(mut guard) = state_clone.lock() else {
                         continue;
                     };
+                    guard.cursor_over_pet = interactive;
                     let menu_open = guard
                         .pause_passthrough_until
                         .is_some_and(|until| Instant::now() < until);
